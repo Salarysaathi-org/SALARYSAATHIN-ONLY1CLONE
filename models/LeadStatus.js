@@ -9,14 +9,6 @@ const leadStatusSchema = new mongoose.Schema(
         },
         stage: {
             type: String,
-            enum: [
-                "Lead",
-                "Application",
-                "Sanction",
-                "Disbursal",
-                "Collection",
-                "Closed",
-            ],
             default: "Lead",
             required: true,
         },

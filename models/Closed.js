@@ -13,6 +13,12 @@ const closedSchema = new mongoose.Schema(
                     type: mongoose.Schema.Types.ObjectId,
                     ref: "Disbursal",
                 },
+                leadNo: {
+                    type: String,
+                    unique: true,
+                    required: true,
+                    sparse: true,
+                },
                 loanNo: { type: String, required: true },
                 isDisbursed: { type: Boolean, default: false },
                 date: { type: Date },

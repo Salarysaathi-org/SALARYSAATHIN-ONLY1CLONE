@@ -6,6 +6,10 @@ const camSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "Lead",
         },
+        leadNo: {
+            type: String,
+            required: true,
+        },
         details: {
             type: Object,
             required: true,

@@ -12,6 +12,8 @@ import xlsx from "xlsx";
 import fs from "fs";
 import Bank from "../models/ApplicantBankDetails.js";
 import { formatFullName } from "./nameFormatter.js";
+import { nextSequence } from "../utils/nextSequence.js";
+import LeadStatus from "../models/LeadStatus.js";
 
 const mongoURI = process.env.MONGO_URI;
 
@@ -1121,11 +1123,352 @@ const esignedSanctions = async () => {
     }
 };
 
-// Function to
+// Add Lead No to all leads
+const addLeadNo = async () => {
+    const leads = await Lead.find({}, { _id: 1 });
+    const bulkOps = await Promise.all(
+        leads.map(async (lead) => {
+            const newLeadNo = await nextSequence("leadNo", "LD", 7);
+
+            return {
+                updateOne: {
+                    filter: { _id: lead._id },
+                    update: { $set: { leadNo: newLeadNo } },
+                },
+            };
+        })
+    );
+
+    if (bulkOps.length) {
+        await Lead.bulkWrite(bulkOps);
+        console.log("Lead numbers added!!");
+    } else {
+        console.log("No leads found.");
+    }
+};
+
+// const send LeadNo and Pan to application, sanction, disbursal and closed
+const sendLeadNoAndPan = async () => {
+    try {
+        // Step 1: Find all approved leads
+        const leads = await Lead.find(
+            { isRecommended: true },
+            { _id: 1, leadNo: 1, pan: 1 }
+        );
+
+        if (!leads.length) {
+            console.log("No approved leads found.");
+            return;
+        }
+
+        // Step 2: Process each lead
+        for (const lead of leads) {
+            const { _id, leadNo, pan } = lead;
+
+            // Update Application collection using leadId
+            const applicationDocs = await Application.find(
+                { lead: _id },
+                { _id: 1 } // Fetch only the application IDs
+            );
+
+            if (applicationDocs.length) {
+                // Add bulk operations for `Application`
+                const applicationBulkOps = applicationDocs.map(
+                    (application) => ({
+                        updateOne: {
+                            filter: { _id: application._id }, // Match by lead in Application
+                            update: { $set: { leadNo, pan } }, // Add leadNo and pan
+                        },
+                    })
+                );
+
+                await Application.bulkWrite(applicationBulkOps);
+                console.log(`Applications updated for lead ${leadNo}.`);
+            }
+
+            // Step 3: Update Sanction collection using application _id
+            const applicationIds = applicationDocs.map((app) => app._id);
+            const sanctionDocs = await Sanction.find(
+                { application: { $in: applicationIds } },
+                { _id: 1 } // Fetch only the sanction IDs
+            );
+
+            if (sanctionDocs.length) {
+                // Create bulk operations for sanctions
+                const sanctionBulkOps = sanctionDocs.map((sanction) => ({
+                    updateOne: {
+                        filter: { _id: sanction._id },
+                        update: { $set: { leadNo, pan } },
+                    },
+                }));
+
+                await Sanction.bulkWrite(sanctionBulkOps);
+                console.log(`Sanctions updated for lead ${leadNo}.`);
+            }
+
+            // Step 4: Update Disbursal collection using sanction _id
+            const sanctionIds = sanctionDocs.map((sanction) => sanction._id);
+            const disbursalDocs = await Disbursal.find(
+                { sanction: { $in: sanctionIds } },
+                { _id: 1 } // Fetch only the Disbursal IDs
+            );
+
+            if (disbursalDocs.length) {
+                // Create bulk operations for Disbursal
+                const disbursalBulkOps = disbursalDocs.map((disbursal) => ({
+                    updateOne: {
+                        filter: { _id: disbursal._id },
+                        update: { $set: { leadNo, pan } },
+                    },
+                }));
+
+                await Disbursal.bulkWrite(disbursalBulkOps);
+                console.log(`Disbursals updated for lead ${leadNo}.`);
+            }
+        }
+    } catch (error) {
+        console.log("error", error);
+    }
+};
+
+const sendLeadInClosed = async () => {
+    try {
+        const disbursalIds = await Disbursal.find({}, { _id: 1, leadNo: 1 });
+        const closedDocs = await Closed.find(
+            { "data.disbursal": { $in: disbursalIds } }, // Match disbursal IDs within the "data" array
+            { _id: 1, data: 1 } // Fetch only the Closed document IDs and data field
+        );
+
+        if (closedDocs.length) {
+            const bulkOps = [];
+
+            closedDocs.forEach((closedDoc) => {
+                if (!Array.isArray(closedDoc.data)) {
+                    console.log("No valid data found in closedDoc:", closedDoc);
+                    return;
+                }
+
+                closedDoc.data.forEach((data) => {
+                    const matchedDisbursal = disbursalIds.find(
+                        (disbursal) =>
+                            data.disbursal.toString() ===
+                            disbursal._id.toString()
+                    );
+                    if (matchedDisbursal) {
+                        data.leadNo = matchedDisbursal.leadNo;
+                    }
+                });
+
+                // Push to bulk operations
+                bulkOps.push({
+                    updateOne: {
+                        filter: { _id: closedDoc._id },
+                        update: { $set: { data: closedDoc.data } },
+                    },
+                });
+            });
+
+            if (bulkOps.length) {
+                await Closed.bulkWrite(bulkOps);
+                console.log("All closedDocs updated successfully in bulk.");
+            } else {
+                console.log("No updates needed for closedDocs.");
+            }
+        } else {
+            console.log("No closedDocs matched the criteria.");
+        }
+    } catch (error) {
+        console.log("error", error);
+    }
+};
+
+// Update Loan Number in sanction, disbursal and closed
+const updateLoanNo = async () => {
+    try {
+        const sanctions = await Sanction.find({ isApproved: true });
+        const disbursals = await Disbursal.find({});
+        const closed = await Closed.find({});
+
+        for (const sanction of sanctions) {
+            const loanNo = await nextSequence("loanNo", "LN", 7);
+            await Sanction.updateOne(
+                { _id: sanction._id },
+                { $set: { loanNo: loanNo } }
+            );
+        }
+
+        for (const disbursal of disbursals) {
+            const loanNo = await nextSequence("loanNo", "LN", 7);
+            await Disbursal.updateOne(
+                { _id: disbursal._id },
+                { $set: { loanNo: loanNo } }
+            );
+        }
+
+        for (const close of closed) {
+            const loanNo = await nextSequence("loanNo", "LN", 7);
+            const data = close.data.map((item) => {
+                item.loanNo = loanNo;
+                return item;
+            });
+            await Closed.updateOne(
+                { _id: close._id },
+                { $set: { data: data } }
+            );
+        }
+
+        console.log("Loan numbers updated successfully");
+    } catch (error) {
+        console.log(`Some error occured: ${error}`);
+    }
+};
+
+// Add leadNo in CAM
+const addLeadNoInCam = async () => {
+    try {
+        const cams = await CamDetails.find({});
+        for (const cam of cams) {
+            const lead = await Lead.findById(cam.leadId);
+            if (lead) {
+                cam.leadNo = lead.leadNo;
+                await cam.save();
+            }
+        }
+        console.log("Lead numbers added to CAM");
+    } catch (error) {
+        console.log(`Some error occured: ${error}`);
+    }
+};
+
+// Create Lead Status
+const createLeadStatus = async () => {
+    try {
+        const leads = await Lead.find(
+            {},
+            {
+                _id: 1,
+                leadNo: 1,
+                pan: 1,
+                isRejected: 1,
+                isRecommended: 1,
+                onHold: 1,
+            }
+        );
+        for (const lead of leads) {
+            if (lead.isRejected) {
+                await LeadStatus.create({
+                    leadNo: lead.leadNo,
+                    pan: lead.pan,
+                    stage: "Lead",
+                    isRejected: true,
+                    isInProcess: false,
+                });
+            } else if (lead.onHold) {
+                await LeadStatus.create({
+                    leadNo: lead.leadNo,
+                    pan: lead.pan,
+                    stage: "Lead",
+                    isHold: true,
+                });
+            } else {
+                await LeadStatus.create({
+                    leadNo: lead.leadNo,
+                    pan: lead.pan,
+                    stage: "Lead",
+                });
+            }
+        }
+        console.log("Lead status updated successfully");
+    } catch (error) {
+        console.log(`Some error occured: ${error}`);
+    }
+};
+
+// Update Lead status
+const updateLeadStatus = async () => {
+    try {
+        // Fetch all lead statuses
+        const leadStatuses = await LeadStatus.find(
+            {},
+            {
+                leadNo: 1,
+                stage: 1,
+                isInProcess: 1,
+                isRejected: 1,
+                isApproved: 1,
+                isHold: 1,
+            }
+        );
+
+        // Initialize bulk operations
+        const bulkOps = [];
+
+        for (const leadStatus of leadStatuses) {
+            // Check if leadNo exists in Application, Sanction, and Disbursal collections
+            const application = await Application.findOne({
+                leadNo: leadStatus.leadNo,
+            });
+            const sanction = await Sanction.findOne({
+                leadNo: leadStatus.leadNo,
+            });
+            const disbursal = await Disbursal.findOne({
+                leadNo: leadStatus.leadNo,
+            });
+
+            // If the leadNo is not in any of the three collections, skip the update
+            if (!application && !sanction && !disbursal) {
+                continue; // Skip this lead
+            }
+
+            // Determine the last stage and rejection status
+            let lastStage = null;
+            let isRejected = false;
+
+            if (application) {
+                lastStage = "Application";
+                isRejected = application.isRejected || false;
+            }
+            if (sanction) {
+                lastStage = "Sanction";
+                isRejected = sanction.isRejected || false;
+            }
+            if (disbursal) {
+                lastStage = "Disbursal";
+                isRejected = disbursal.isRejected || false;
+            }
+
+            // Prepare the update for this leadNo
+            bulkOps.push({
+                updateOne: {
+                    filter: { leadNo: leadStatus.leadNo },
+                    update: {
+                        $set: {
+                            stage: lastStage || leadStatus.stage,
+                            isInProcess: !isRejected,
+                            isRejected,
+                        },
+                    },
+                },
+            });
+        }
+
+        // Execute bulkWrite if there are updates
+        if (bulkOps.length > 0) {
+            const result = await LeadStatus.bulkWrite(bulkOps);
+            console.log(
+                `Successfully updated ${result.modifiedCount} lead statuses.`
+            );
+        } else {
+            console.log("No updates needed for lead statuses.");
+        }
+    } catch (error) {
+        console.log(`Some error occured: ${error}`);
+    }
+};
 
 // Main Function to Connect and Run
 async function main() {
-    // await connectToDatabase();
+    // await connectToDatabase();   // Start - Connect to the database
     // await migrateDocuments();
     // await updateLoanNumber();
     // await sanctionActiveLeadsMigration();
@@ -1135,6 +1478,12 @@ async function main() {
     // addRecommendedByToSanctions();
     // await sendApprovedSanctionToDisbursal();
     // await esignedSanctions();
+    // await addLeadNo();           // Step - 1
+    // await sendLeadNoAndPan();    // Step - 2
+    // await sendLeadInClosed();    // Step - 3
+    // await addLeadNoInCam();      // Step - 4
+    // await createLeadStatus();    // Step - 5
+    // await updateLeadStatus();    // Step - 6
     // updateDisbursals();
     // migrateApplicationsToSanctions();
     mongoose.connection.close(); // Close the connection after the script completes
