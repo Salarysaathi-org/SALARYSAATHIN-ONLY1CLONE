@@ -1285,35 +1285,29 @@ const sendLeadInClosed = async () => {
 // Update Loan Number in sanction, disbursal and closed
 const updateLoanNo = async () => {
     try {
+        // Fetch only approved sanctions that need a loan number
         const sanctions = await Sanction.find({ isApproved: true });
-        const disbursals = await Disbursal.find({});
-        const closed = await Closed.find({});
 
         for (const sanction of sanctions) {
+            // Generate a new loan number
             const loanNo = await nextSequence("loanNo", "LN", 7);
+
+            // Update the sanction with the generated loan number
             await Sanction.updateOne(
                 { _id: sanction._id },
                 { $set: { loanNo: loanNo } }
             );
-        }
 
-        for (const disbursal of disbursals) {
-            const loanNo = await nextSequence("loanNo", "LN", 7);
+            // Update the corresponding disbursal record (if exists)
             await Disbursal.updateOne(
-                { _id: disbursal._id },
+                { sanction: sanction._id },
                 { $set: { loanNo: loanNo } }
             );
-        }
 
-        for (const close of closed) {
-            const loanNo = await nextSequence("loanNo", "LN", 7);
-            const data = close.data.map((item) => {
-                item.loanNo = loanNo;
-                return item;
-            });
+            // Update the corresponding closed record (if exists)
             await Closed.updateOne(
-                { _id: close._id },
-                { $set: { data: data } }
+                { "data.leadNo": sanction.leadNo }, // Match the old loanNo
+                { $set: { "data.$.loanNo": loanNo } } // Update with the new loanNo
             );
         }
 
@@ -1468,7 +1462,7 @@ const updateLeadStatus = async () => {
 
 // Main Function to Connect and Run
 async function main() {
-    // await connectToDatabase();   // Start - Connect to the database
+    await connectToDatabase(); // Start - Connect to the database
     // await migrateDocuments();
     // await updateLoanNumber();
     // await sanctionActiveLeadsMigration();
@@ -1481,9 +1475,10 @@ async function main() {
     // await addLeadNo();           // Step - 1
     // await sendLeadNoAndPan();    // Step - 2
     // await sendLeadInClosed();    // Step - 3
-    // await addLeadNoInCam();      // Step - 4
-    // await createLeadStatus();    // Step - 5
-    // await updateLeadStatus();    // Step - 6
+    // await updateLoanNo();        // Step - 4
+    // await addLeadNoInCam();      // Step - 5
+    // await createLeadStatus();    // Step - 6
+    // await updateLeadStatus();    // Step - 7
     // updateDisbursals();
     // migrateApplicationsToSanctions();
     mongoose.connection.close(); // Close the connection after the script completes
