@@ -384,16 +384,12 @@ export const approveDisbursal = asyncHandler(async (req, res) => {
                 },
             ],
         });
-
         await Closed.updateOne(
-            { "data.disbursal": id },
+            { "data.loanNo": disbursalData.loanNo },
             {
                 $set: {
-                    "data.$[elem].isDisbursed": true,
+                    "data.$.isDisbursed": true,
                 },
-            },
-            {
-                arrayFilters: [{ "elem.disbursal": id }],
             }
         );
 
