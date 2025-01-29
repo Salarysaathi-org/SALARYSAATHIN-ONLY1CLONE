@@ -1251,8 +1251,9 @@ const sendLeadInClosed = async () => {
                 closedDoc.data.forEach((data) => {
                     const matchedDisbursal = disbursalIds.find(
                         (disbursal) =>
+                            data.disbursal &&
                             data.disbursal.toString() ===
-                            disbursal._id.toString()
+                                disbursal._id.toString()
                     );
                     if (matchedDisbursal) {
                         data.leadNo = matchedDisbursal.leadNo;
@@ -1417,6 +1418,7 @@ const updateLeadStatus = async () => {
             // Determine the last stage and rejection status
             let lastStage = null;
             let isRejected = false;
+            // let isApproved = false;
 
             if (application) {
                 lastStage = "Application";
@@ -1425,23 +1427,36 @@ const updateLeadStatus = async () => {
             if (sanction) {
                 lastStage = "Sanction";
                 isRejected = sanction.isRejected || false;
+                // isApproved = sanction.isApproved || false;
             }
             if (disbursal) {
                 lastStage = "Disbursal";
                 isRejected = disbursal.isRejected || false;
+                // isApproved = disbursal.isRejected ? false : true;
             }
 
-            // Prepare the update for this leadNo
+            // Prepare the update object
+            const updateFields = {
+                stage: lastStage || leadStatus.stage,
+                isInProcess: !isRejected,
+                isRejected,
+            };
+
+            // If sanction exists and isApproved is true, update isApproved in LeadStatus
+            if (sanction && sanction.isApproved) {
+                updateFields.isApproved = true;
+            }
+
+            // If disbursal exists and isRejected is true, update isApproved in LeadStatus
+            if (disbursal && disbursal.isRejected) {
+                updateFields.isApproved = false;
+            }
+
+            // Push update operation
             bulkOps.push({
                 updateOne: {
                     filter: { leadNo: leadStatus.leadNo },
-                    update: {
-                        $set: {
-                            stage: lastStage || leadStatus.stage,
-                            isInProcess: !isRejected,
-                            isRejected,
-                        },
-                    },
+                    update: { $set: updateFields },
                 },
             });
         }
@@ -1472,13 +1487,13 @@ async function main() {
     // addRecommendedByToSanctions();
     // await sendApprovedSanctionToDisbursal();
     // await esignedSanctions();
-    // await addLeadNo();           // Step - 1
-    // await sendLeadNoAndPan();    // Step - 2
-    // await sendLeadInClosed();    // Step - 3
-    // await updateLoanNo();        // Step - 4
-    // await addLeadNoInCam();      // Step - 5
-    // await createLeadStatus();    // Step - 6
-    // await updateLeadStatus();    // Step - 7
+    // await addLeadNo(); // Step - 1
+    // await sendLeadNoAndPan(); // Step - 2
+    // await sendLeadInClosed(); // Step - 3
+    // await addLeadNoInCam(); // Step - 4
+    // await updateLoanNo(); // Step - 5
+    await createLeadStatus(); // Step - 6
+    // await updateLeadStatus(); // Step - 7
     // updateDisbursals();
     // migrateApplicationsToSanctions();
     mongoose.connection.close(); // Close the connection after the script completes

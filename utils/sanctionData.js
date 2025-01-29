@@ -65,8 +65,11 @@ export const getSanctionData = async (id) => {
         // bankName: `${bankName || "-"}`,
         bouncedCharges: "1000",
         annualPercentage: `${
-            365 * Number(camDetails?.details?.roi) +
-            Number(camDetails?.details?.adminFeePercentage)
+            ((Number(camDetails?.details?.roi) / 100) *
+                Number(camDetails?.details.eligibleTenure) +
+                Number(camDetails?.details?.adminFeePercentage) / 100) *
+            (365 / Number(camDetails?.details.eligibleTenure)) *
+            100
         }%`,
     };
 
