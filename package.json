@@ -1,15 +1,15 @@
 {
-    "name": "uat-salarysaathi-crm-backend",
+    "name": "salarysaathi-crm-backend",
     "version": "1.0.0",
     "main": "index.js",
     "type": "module",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
-        "start": "pm2 start index.js --name uat-salarysaathi-crm-backend",
-        "restart": "pm2 restart uat-salarysaathi-crm-backend",
-        "stop": "pm2 stop uat-salarysaathi-crm-backend",
-        "logs": "pm2 logs uat-salarysaathi-crm-backend",
-        "delete": "pm2 delete uat-salarysaathi-crm-backend",
+        "start": "pm2 start index.js --name salarysaathi-crm-backend",
+        "restart": "pm2 restart salarysaathi-crm-backend",
+        "stop": "pm2 stop salarysaathi-crm-backend",
+        "logs": "pm2 logs salarysaathi-crm-backend",
+        "delete": "pm2 delete salarysaathi-crm-backend",
         "dev": "nodemon index.js"
     },
     "keywords": [],
