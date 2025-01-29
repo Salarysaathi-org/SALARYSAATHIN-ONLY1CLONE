@@ -6,13 +6,13 @@ import { postLogs } from "./logs.js";
 
 // @desc Create a lead to close after collection/recovery
 // @route POST /api/collections/
-export const createActiveLead = async (pan, loanNo) => {
+export const createActiveLead = async (pan, loanNo, leadNo) => {
     try {
         const existingActiveLead = await Closed.findOne({ pan: pan });
         if (!existingActiveLead) {
             const newActiveLead = await Closed.create({
                 pan,
-                data: [{ loanNo: loanNo }],
+                data: [{ loanNo: loanNo, leadNo: leadNo }],
             });
             if (!newActiveLead) {
                 return { success: false };

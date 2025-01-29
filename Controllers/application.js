@@ -148,11 +148,20 @@ export const allocatedApplications = asyncHandler(async (req, res) => {
 
 // @desc Adding CAM details
 // @access Private
-export const postCamDetails = async (leadId, cibilScore, loanAmount) => {
-    const details = { cibilScore: cibilScore, loanAmount: loanAmount };
+export const postCamDetails = async (
+    leadId,
+    leadNo,
+    cibilScore,
+    loanAmount
+) => {
+    const details = {
+        cibilScore: cibilScore,
+        loanAmount: loanAmount,
+    };
 
     await CamDetails.create({
         leadId: leadId,
+        leadNo: leadNo,
         details: details,
     });
 
@@ -243,11 +252,9 @@ export const recommendedApplication = asyncHandler(async (req, res) => {
             .populate({ path: "lead", populate: { path: "documents" } })
             .populate("creditManagerId");
 
-
         if (!application) {
             throw new Error("Application not found"); // This error will be caught by the error handler
         }
-
 
         const status = await LeadStatus.findById({
             _id: application.lead.leadStatus.toString(),
@@ -277,8 +284,8 @@ export const recommendedApplication = asyncHandler(async (req, res) => {
             // Sending the application to sanction
             const newSanction = new Sanction({
                 application: application._id,
-                pan:application.pan,
-                leadNo:application.leadNo,
+                pan: application.pan,
+                leadNo: application.leadNo,
                 recommendedBy: req.employee._id,
             });
 
@@ -291,7 +298,7 @@ export const recommendedApplication = asyncHandler(async (req, res) => {
 
             // Change lead status to Sanction (showing the lead is in the sanction stage)
             status.stage = "Sanction";
-            
+
             // Approve the lead by updating its status
             application.isRecommended = true;
             application.recommendedBy = req.employee._id;

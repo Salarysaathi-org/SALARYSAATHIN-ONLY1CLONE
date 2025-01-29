@@ -347,9 +347,9 @@ export const recommendLead = asyncHandler(async (req, res) => {
         };
         const applicant = await applicantDetails(details);
 
-        await postCamDetails(id, lead.cibilScore, lead.loanAmount);
+        await postCamDetails(id, lead.leadNo, lead.cibilScore, lead.loanAmount);
 
-        const newApplication =  new Application({
+        const newApplication = new Application({
             leadNo: lead.leadNo,
             pan: lead.pan,
             lead: id,
@@ -364,7 +364,7 @@ export const recommendLead = asyncHandler(async (req, res) => {
 
         // Change lead status to Application (showing the lead is in the application stage)
         status.stage = "Application";
-        
+
         // Approve the lead by updating its status
         lead.isRecommended = true;
         lead.recommendedBy = req.employee._id;

@@ -267,7 +267,8 @@ export const sanctionApprove = asyncHandler(async (req, res) => {
 
             const newActiveLead = await createActiveLead(
                 pan,
-                existing.loanNo
+                existing.loanNo,
+                existing.leadNo
                 // disbursalRes._id
             );
             if (!newActiveLead.success) {
