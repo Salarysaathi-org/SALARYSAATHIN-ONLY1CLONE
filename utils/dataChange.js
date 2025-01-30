@@ -1649,7 +1649,7 @@ const addLeadStatusRef = async () => {
 
 // Main Function to Connect and Run
 async function main() {
-    await connectToDatabase(); // Start - Connect to the database
+    // await connectToDatabase(); // Start - Connect to the database
     // await migrateDocuments();
     // await updateLoanNumber();
     // await sanctionActiveLeadsMigration();
@@ -1663,7 +1663,7 @@ async function main() {
     // await sendLeadNoAndPan(); // Step - 2
     // await sendLeadInClosed(); // Step - 3
     // await addLeadNoInCam(); // Step - 4
-    await updateLoanNo(); // Step - 5
+    // await updateLoanNo(); // Step - 5
     // await createLeadStatus(); // Step - 6
     // await updateLeadStatus(); // Step - 7
     // await updateEsign();
