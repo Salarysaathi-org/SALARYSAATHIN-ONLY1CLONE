@@ -96,11 +96,14 @@ export const eSignStepFour = async (referenceId) => {
 // @route POST /api/sanction/esign/success
 // @access Public
 export const eSignWebhook = asyncHandler(async (req, res) => {
+    console.log("Esign Webhook Called");
     const data = req.body;
     if (data.data.dscData && Object.keys(data.data.dscData).length > 0) {
         const time = new Date();
         const response = await getDoc(data.referenceId, data, time);
+
         if (!response.success) {
+            console.log(response.message);
             res.status(400);
             throw new Error(response.message);
         }
