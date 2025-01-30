@@ -8,6 +8,7 @@ import { postLogs } from "./logs.js";
 // @route POST /api/collections/
 export const createActiveLead = async (pan, loanNo, leadNo) => {
     try {
+        console.log(pan, loanNo, leadNo);
         const existingActiveLead = await Closed.findOne({ pan: pan });
         if (!existingActiveLead) {
             const newActiveLead = await Closed.create({
@@ -22,7 +23,7 @@ export const createActiveLead = async (pan, loanNo, leadNo) => {
             existingActiveLead.data.some((entry) => entry.isActive === false)
         ) {
             // If disbursal ID is not found, add the new disbursal
-            existingActiveLead.data.push({ loanNo: loanNo });
+            existingActiveLead.data.push({ loanNo: loanNo, leadNo: leadNo });
             const res = await existingActiveLead.save();
             if (!res) {
                 return { success: false };

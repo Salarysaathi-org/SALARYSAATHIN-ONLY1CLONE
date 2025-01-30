@@ -271,6 +271,8 @@ export const sanctionApprove = asyncHandler(async (req, res) => {
                 existing.leadNo
                 // disbursalRes._id
             );
+            console.log("newActiveLead", newActiveLead);
+
             if (!newActiveLead.success) {
                 res.status(400);
                 throw new Error(
