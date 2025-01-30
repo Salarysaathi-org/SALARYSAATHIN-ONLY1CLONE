@@ -5,6 +5,7 @@ const disbursalSchema = new mongoose.Schema(
         loanNo: {
             type: String,
             unique: true,
+            sparse: true,
         },
         // application: {
         //     type: mongoose.Schema.Types.ObjectId,
@@ -78,8 +79,8 @@ const disbursalSchema = new mongoose.Schema(
         leadNo: {
             type: String,
             // required: true,
-            unique:true,
-            sparse:true,
+            unique: true,
+            sparse: true,
         },
         pan: {
             type: String,

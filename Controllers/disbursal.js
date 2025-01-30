@@ -22,7 +22,7 @@ export const getNewDisbursal = asyncHandler(async (req, res) => {
             disbursalManagerId: null,
             isRecommended: { $ne: true },
             isApproved: { $ne: true },
-            // eSigned: { $eq: true },
+            sanctionESigned: { $eq: true },
         };
 
         const disbursals = await Disbursal.find(query)

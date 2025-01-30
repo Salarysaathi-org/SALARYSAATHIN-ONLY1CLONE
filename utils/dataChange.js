@@ -1545,10 +1545,17 @@ const searchSanctionsByPAN = async () => {
         loanPanArray.map(({ pan, loanNos }) => [pan, loanNos])
     );
     const panArray = loanPanArray.map((item) => item.pan); // Extract PANs from array
+    // console.log("PANs extracted from Excel:", panLoanMap);
+
+    // Convert Map to JSON-friendly object
+    const panLoanObject = Object.fromEntries(panLoanMap);
+
+    // Save to a file
+    // fs.writeFileSync("panLoanMap.json", JSON.stringify(panLoanObject, null, 2));
 
     // Fetch sanctions for the extracted PANs, sorted by sanctionDate (oldest first)
     const matchingSanctions = await Sanction.find(
-        { pan: { $in: panArray } },
+        { pan: { $in: panArray }, sanctionDate: { $exists: true, $ne: null } },
         { _id: 1, pan: 1, leadNo: 1, sanctionDate: 1 }
     ).sort({ sanctionDate: 1 }); // Sort in ascending order
 
@@ -1579,6 +1586,12 @@ const searchSanctionsByPAN = async () => {
             };
         }
     );
+
+    // Save the array directly as JSON
+    // fs.writeFileSync(
+    //     "panMap.json",
+    //     JSON.stringify(panArrayWithSanctionsAndLoans, null, 2)
+    // );
 
     // **Updating Sanction Collection**
     for (const { sanctions } of panArrayWithSanctionsAndLoans) {
@@ -1636,7 +1649,7 @@ const addLeadStatusRef = async () => {
 
 // Main Function to Connect and Run
 async function main() {
-    // await connectToDatabase(); // Start - Connect to the database
+    await connectToDatabase(); // Start - Connect to the database
     // await migrateDocuments();
     // await updateLoanNumber();
     // await sanctionActiveLeadsMigration();
@@ -1650,7 +1663,7 @@ async function main() {
     // await sendLeadNoAndPan(); // Step - 2
     // await sendLeadInClosed(); // Step - 3
     // await addLeadNoInCam(); // Step - 4
-    // await updateLoanNo(); // Step - 5
+    await updateLoanNo(); // Step - 5
     // await createLeadStatus(); // Step - 6
     // await updateLeadStatus(); // Step - 7
     // await updateEsign();
