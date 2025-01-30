@@ -28,11 +28,11 @@ const app = express();
 // CORS configuration
 var corsOption = {
     origin: [
-        "https://www.only1loan.com",
-        "https://only1loan.com",
+        "https://www.salarysaathi.com",
+        "https://salarysaathi.com",
         "http://localhost:5173",
-        "https://www.crm.only1loan.com",
-        "https://crm.only1loan.com",
+        "https://www.crm.salarysaathi.com",
+        "https://crm.salarysaathi.com",
     ],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true,
