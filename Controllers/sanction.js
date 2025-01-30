@@ -245,7 +245,7 @@ export const sanctionApprove = asyncHandler(async (req, res) => {
                 throw new Error("This PAN already has an active lead!!");
             }
 
-            const newLoanNo = await nextSequence("loanNo", "LN", 7);
+            const newLoanNo = await nextSequence("loanNo", "NMFSPE", 11);
 
             const update = await Sanction.findByIdAndUpdate(
                 id,

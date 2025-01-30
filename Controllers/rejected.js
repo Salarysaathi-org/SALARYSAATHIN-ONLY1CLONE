@@ -6,6 +6,7 @@ import Employee from "../models/Employees.js";
 import { postLogs } from "./logs.js";
 import Sanction from "../models/Sanction.js";
 import Disbursal from "../models/Disbursal.js";
+import LeadStatus from "../models/LeadStatus.js";
 
 // @desc Rejecting a lead
 // @route PATCH /api/leads/reject/:id or /api/applications/reject/:id

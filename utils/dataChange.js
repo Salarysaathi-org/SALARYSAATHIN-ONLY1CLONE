@@ -8,6 +8,7 @@ import Lead from "../models/Leads.js";
 import Documents from "../models/Documents.js";
 import Sanction from "../models/Sanction.js";
 import Employee from "../models/Employees.js";
+import moment from "moment";
 import xlsx from "xlsx";
 import fs from "fs";
 import Bank from "../models/ApplicantBankDetails.js";
@@ -1291,24 +1292,24 @@ const updateLoanNo = async () => {
 
         for (const sanction of sanctions) {
             // Generate a new loan number
-            const loanNo = await nextSequence("loanNo", "LN", 7);
+            // const loanNo = await nextSequence("loanNo", "LN", 7);
 
             // Update the sanction with the generated loan number
-            await Sanction.updateOne(
-                { _id: sanction._id },
-                { $set: { loanNo: loanNo } }
-            );
+            // await Sanction.updateOne(
+            //     { _id: sanction._id },
+            //     { $set: { loanNo: loanNo } }
+            // );
 
             // Update the corresponding disbursal record (if exists)
             await Disbursal.updateOne(
                 { sanction: sanction._id },
-                { $set: { loanNo: loanNo } }
+                { $set: { loanNo: sanction.loanNo } }
             );
 
             // Update the corresponding closed record (if exists)
             await Closed.updateOne(
                 { "data.leadNo": sanction.leadNo }, // Match the old loanNo
-                { $set: { "data.$.loanNo": loanNo } } // Update with the new loanNo
+                { $set: { "data.$.loanNo": sanction.loanNo } } // Update with the new loanNo
             );
         }
 
@@ -1475,6 +1476,164 @@ const updateLeadStatus = async () => {
     }
 };
 
+// Update the eSigned true in sanctioned records
+const updateEsign = async () => {
+    try {
+        // Find all disbursals with a disbursalManagerId
+        const disbursals = await Disbursal.find(
+            { disbursalManagerId: { $exists: true } },
+            { sanction: 1 } // Only fetch the sanction field
+        );
+
+        // Extract unique sanction IDs
+        const sanctionIds = disbursals.map((d) => d.sanction).filter(Boolean);
+
+        if (sanctionIds.length === 0) {
+            console.log("No sanctions found to update.");
+            return;
+        }
+
+        // Update all matching sanctions in bulk
+        const result = await Sanction.updateMany(
+            { _id: { $in: sanctionIds } },
+            { $set: { eSigned: true } }
+        );
+
+        console.log(`${result.modifiedCount} sanctions updated.`);
+    } catch (error) {
+        console.log("Error updating eSigned:", error.message);
+    }
+};
+
+// Function to extract and group loan numbers by PAN from Excel
+const extractLoanPanFromExcel = () => {
+    const workbook = xlsx.readFile("Salarysaathi.xlsx");
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]; // Read first sheet
+
+    const loanPanMap = new Map(); // Store PAN as key and Loan Numbers as an array
+
+    let row = 2; // Start from row 2
+
+    while (true) {
+        const loanCell = sheet[`A${row}`];
+        const panCell = sheet[`D${row}`];
+
+        if (!loanCell || !panCell) break; // Stop when empty row is encountered
+
+        const loanNo = loanCell.v.toString().trim();
+        const pan = panCell.v.toString().trim();
+
+        if (!loanPanMap.has(pan)) {
+            loanPanMap.set(pan, []); // Initialize array if PAN not present
+        }
+        loanPanMap.get(pan).push(loanNo); // Append Loan No to PAN
+
+        row++;
+    }
+
+    // Convert Map to an array of objects
+    return Array.from(loanPanMap, ([pan, loanNos]) => ({ pan, loanNos }));
+};
+
+// Function to search Sanction collection with extracted PANs
+const searchSanctionsByPAN = async () => {
+    const loanPanArray = extractLoanPanFromExcel();
+    // console.log("Extracted PANs and Loan Numbers:", loanPanArray);
+
+    // Create a Map for quick lookup of loan numbers by PAN
+    const panLoanMap = new Map(
+        loanPanArray.map(({ pan, loanNos }) => [pan, loanNos])
+    );
+    const panArray = loanPanArray.map((item) => item.pan); // Extract PANs from array
+
+    // Fetch sanctions for the extracted PANs, sorted by sanctionDate (oldest first)
+    const matchingSanctions = await Sanction.find(
+        { pan: { $in: panArray } },
+        { _id: 1, pan: 1, leadNo: 1, sanctionDate: 1 }
+    ).sort({ sanctionDate: 1 }); // Sort in ascending order
+
+    // Group sanctions by PAN
+    const panSanctionMap = new Map();
+
+    for (const sanction of matchingSanctions) {
+        const { pan, _id, sanctionDate } = sanction;
+
+        if (!panSanctionMap.has(pan)) {
+            panSanctionMap.set(pan, []); // Initialize array if PAN not present
+        }
+        panSanctionMap.get(pan).push({ sanctionId: _id, sanctionDate });
+    }
+
+    // Map loan numbers to the corresponding sanctions (oldest gets first loan)
+    const panArrayWithSanctionsAndLoans = Array.from(
+        panSanctionMap,
+        ([pan, sanctions]) => {
+            const loanNumbers = panLoanMap.get(pan) || []; // Get loan numbers for this PAN
+
+            return {
+                pan,
+                sanctions: sanctions.map((sanction, index) => ({
+                    ...sanction,
+                    loanNo: loanNumbers[index] || null, // Assign loan numbers in order
+                })),
+            };
+        }
+    );
+
+    // **Updating Sanction Collection**
+    for (const { sanctions } of panArrayWithSanctionsAndLoans) {
+        for (const { sanctionId, loanNo } of sanctions) {
+            if (loanNo) {
+                await Sanction.updateOne(
+                    { _id: sanctionId }, // Find by ID
+                    { $set: { loanNo } } // Update loan number
+                );
+                console.log(
+                    `Updated Sanction ID: ${sanctionId} with Loan No: ${loanNo}`
+                );
+            }
+        }
+    }
+
+    console.log("Sanction collection updated successfully.");
+};
+
+// Update Loan Number in from LN to NMFSPE
+const updateLoanNumberType = async () => {
+    const sanctions = await Sanction.find({ loanNo: { $regex: /^LN/ } });
+    // console.log(sanctions.length);
+
+    for (const sanction of sanctions) {
+        const newLoanNo = await nextSequence("loanNo", "NMFSPE", 11);
+        await Sanction.updateOne(
+            { _id: sanction._id },
+            { $set: { loanNo: newLoanNo } }
+        );
+        console.log(
+            `Updated Sanction ID: ${sanction._id} with Loan No: ${newLoanNo}`
+        );
+    }
+
+    // console.log("Sanction collection updated successfully.");
+};
+
+// Add lead status reference
+const addLeadStatusRef = async () => {
+    try {
+        const leadStatus = await LeadStatus.find({}, { leadNo: 1 });
+        const bulkOps = leadStatus.map((status) => ({
+            updateOne: {
+                filter: { leadNo: status.leadNo },
+                update: { $set: { leadStatus: status._id } },
+            },
+        }));
+        await Lead.bulkWrite(bulkOps);
+        console.log("Lead status reference added successfully");
+    } catch (error) {
+        console.log(`Some error occured: ${error}`);
+    }
+};
+
 // Main Function to Connect and Run
 async function main() {
     // await connectToDatabase(); // Start - Connect to the database
@@ -1494,6 +1653,10 @@ async function main() {
     // await updateLoanNo(); // Step - 5
     // await createLeadStatus(); // Step - 6
     // await updateLeadStatus(); // Step - 7
+    // await updateEsign();
+    // await searchSanctionsByPAN();
+    // await updateLoanNumberType();
+    // await addLeadStatusRef();
     // updateDisbursals();
     // migrateApplicationsToSanctions();
     mongoose.connection.close(); // Close the connection after the script completes
