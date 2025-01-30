@@ -98,10 +98,11 @@ export const eSignStepFour = async (referenceId) => {
 export const eSignWebhook = asyncHandler(async (req, res) => {
     console.log("Esign Webhook Called");
     const data = req.body;
+    console.log("The data values are ",data);
     if (data.data.dscData && Object.keys(data.data.dscData).length > 0) {
         const time = new Date();
         const response = await getDoc(data.referenceId, data, time);
-
+        console.log("The data values are ",response);
         if (!response.success) {
             console.log(response.message);
             res.status(400);
