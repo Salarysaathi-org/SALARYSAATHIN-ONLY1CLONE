@@ -16,34 +16,36 @@ export const activeLeadsToVerify = asyncHandler(async (req, res) => {
         const pipeline = [
             {
                 $match: {
-                    // Match the parent document where the data array contains elements
-                    // that have isActive: true
-                    "data.isActive": true,
-                    "data.isDisbursed": true,
-                    "data.isVerified": false,
-                    "data.isClosed": false,
-                    $or: [
-                        { "data.date": { $exists: true, $ne: null } },
-                        { "data.amount": { $exists: true, $ne: 0 } },
-                        { "data.utr": { $exists: true, $ne: 0 } },
-                        {
-                            "data.partialPaid": {
-                                $elemMatch: {
-                                    date: { $exists: true, $ne: null },
-                                    amount: { $exists: true, $gt: 0 },
-                                    utr: { $exists: true },
-                                    isPartlyPaid: { $ne: true },
+                    data: {
+                        $elemMatch: {
+                            isActive: true,
+                            isDisbursed: true,
+                            isVerified: false,
+                            isClosed: false,
+                            $or: [
+                                { date: { $exists: true, $ne: null } },
+                                { amount: { $exists: true, $ne: 0 } },
+                                { utr: { $exists: true, $ne: 0 } },
+                                {
+                                    partialPaid: {
+                                        $elemMatch: {
+                                            date: { $exists: true, $ne: null },
+                                            amount: { $exists: true, $gt: 0 },
+                                            utr: { $exists: true },
+                                            isPartlyPaid: { $ne: true },
+                                        },
+                                    },
                                 },
-                            },
+                                {
+                                    requestedStatus: {
+                                        $exists: true,
+                                        $ne: null,
+                                    },
+                                },
+                                { dpd: { $exists: true, $gt: 0 } },
+                            ],
                         },
-                        {
-                            "data.requestedStatus": {
-                                $exists: true,
-                                $ne: null,
-                            },
-                        },
-                        { "data.dpd": { $exists: true, $gt: 0 } },
-                    ],
+                    },
                 },
             },
             {
@@ -51,11 +53,13 @@ export const activeLeadsToVerify = asyncHandler(async (req, res) => {
                     data: {
                         $filter: {
                             input: "$data",
-                            as: "item", // Alias for each element in the array
+                            as: "item",
                             cond: {
                                 $and: [
-                                    { $eq: ["$$item.isActive", true] }, // Condition for isActive
+                                    { $eq: ["$$item.isActive", true] },
                                     { $eq: ["$$item.isDisbursed", true] },
+                                    { $eq: ["$$item.isVerified", false] },
+                                    { $eq: ["$$item.isClosed", false] },
                                 ],
                             },
                         },
@@ -64,20 +68,19 @@ export const activeLeadsToVerify = asyncHandler(async (req, res) => {
             },
             {
                 $addFields: {
-                    data: { $arrayElemAt: ["$data", 0] }, // Extract the first matching object
+                    data: { $arrayElemAt: ["$data", 0] },
+                },
+            },
+            {
+                $match: {
+                    data: { $ne: null }, // Ensures that we only return documents with at least one matching data entry
                 },
             },
             {
                 $sort: {
-                    updatedAt: -1, // Sort by updatedAt in descending order
+                    updatedAt: -1,
                 },
             },
-            // {
-            //     $skip: skip,
-            // },
-            // {
-            //     $limit: limit,
-            // },
         ];
 
         const results = await Closed.aggregate(pipeline).sort({
