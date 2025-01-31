@@ -97,6 +97,17 @@ export const eSignStepFour = async (referenceId) => {
 // @access Public
 export const eSignWebhook = asyncHandler(async (req, res) => {
     const data = req.body;
+    if (data.responseCode === "EUN951") {
+        const lead = await Lead.findOne({ referenceId: data.referenceId });
+        logs = await postLogs(
+            lead._id,
+            `ESIGN FAILED BY THE CUSTOMER ${time}`,
+            `${lead.fName}${lead.mName && ` ${lead.mName}`}${
+                lead.lName && ` ${lead.lName}`
+            }`,
+            `Esign failed because UID or name did not match`
+        );
+    }
     if (data.data.dscData && Object.keys(data.data.dscData).length > 0) {
         const time = new Date();
         const response = await getDoc(data.referenceId, data, time);
