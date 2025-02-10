@@ -6,6 +6,7 @@ import sendEmail from "../utils/sendEmail.js";
 import jwt from "jsonwebtoken";
 import { aadhaarKyc } from "../utils/smsGateway.js";
 import { postLogs } from "./logs.js";
+import FormData from "form-data";
 
 // @desc Generate Aadhaar OTP.
 // @route GET /api/verify/mail/:id
@@ -23,32 +24,55 @@ export const generateAadhaarLink = asyncHandler(async (req, res) => {
     const customerName = `${fName}${mName && ` ${mName}`} ${lName}`;
     const link = `https://api.salarysaathi.com/verify-aadhaar/${id}`;
     // const link = `http://localhost:8080/verify-aadhaar/${id}`;
-    const result = await aadhaarKyc(lead.mobile, lead.fName, lead.lName, link);
+    // const result = await aadhaarKyc(lead.mobile, lead.fName, lead.lName, link);
 
-    if (result.data.ErrorMessage === "Success") {
-        console.log("Link sent on mobile!!");
-        await sendEmail(
-            personalEmail,
-            customerName,
-            `Aadhaar verification`,
-            link
-        );
-        await postLogs(
-            id,
-            "AADHAAR LINK SENT TO THE CUSTOMER",
-            `${lead.fName}${lead.mName && ` ${lead.mName}`}${
-                lead.lName && ` ${lead.lName}`
-            }`,
-            "Aadhaar Link sent to the customer"
-        );
-        return res.json({
-            success: true,
-            message: "Link sent successfully on mobile and email.",
-        });
-    }
-    return res
-        .status(500)
-        .json({ success: false, message: "Failed to send OTP" });
+    const formData = new FormData();
+    formData.append("from", "info@salarysaathi.com");
+    formData.append("to", `${personalEmail}`);
+    formData.append("subject", "Aadhaar Verification");
+    formData.append(
+        "html",
+        `<p>To verify your aadhaar click on <strong>${link}</strong>.</p>`
+    );
+
+    await sendEmail(formData);
+    await postLogs(
+        id,
+        "AADHAAR LINK SENT TO THE CUSTOMER",
+        `${lead.fName}${lead.mName && ` ${lead.mName}`}${
+            lead.lName && ` ${lead.lName}`
+        }`,
+        "Aadhaar Link sent to the customer"
+    );
+    return res.json({
+        success: true,
+        message: "Link sent successfully on mobile and email.",
+    });
+
+    // if (result.data.ErrorMessage === "Success") {
+    //     console.log("Link sent on mobile!!");
+    //     await sendEmail(
+    //         personalEmail,
+    //         customerName,
+    //         `Aadhaar verification`,
+    //         link
+    //     );
+    //     await postLogs(
+    //         id,
+    //         "AADHAAR LINK SENT TO THE CUSTOMER",
+    //         `${lead.fName}${lead.mName && ` ${lead.mName}`}${
+    //             lead.lName && ` ${lead.lName}`
+    //         }`,
+    //         "Aadhaar Link sent to the customer"
+    //     );
+    //     return res.json({
+    //         success: true,
+    //         message: "Link sent successfully on mobile and email.",
+    //     });
+    // }
+    // return res
+    //     .status(500)
+    //     .json({ success: false, message: "Failed to send OTP" });
 });
 
 // @desc Generate Aadhaar OTP.
