@@ -159,11 +159,17 @@ export const postCamDetails = async (
         loanAmount: loanAmount,
     };
 
-    await CamDetails.create({
-        leadId: leadId,
-        leadNo: leadNo,
-        details: details,
-    });
+    const newCam = await CamDetails.findByIdAndUpdate(
+        {
+            leadId: leadId,
+            leadNo: leadNo,
+            details: details,
+        },
+        { new: true, upsert: true }
+    );
+    if (!newCam) {
+        return { success: false };
+    }
 
     return { success: true };
 };
