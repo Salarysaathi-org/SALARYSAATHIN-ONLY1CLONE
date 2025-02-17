@@ -159,19 +159,24 @@ export const postCamDetails = async (
         loanAmount: loanAmount,
     };
 
-    const newCam = await CamDetails.findByIdAndUpdate(
-        {
+    const exisitingCam = await CamDetails.findOne({
+        leadId: leadId,
+        leadNo: leadNo,
+    });
+
+    if (!exisitingCam) {
+        const newCam = await CamDetails.create({
             leadId: leadId,
             leadNo: leadNo,
             details: details,
-        },
-        { new: true, upsert: true }
-    );
-    if (!newCam) {
-        return { success: false };
+        });
+        if (!newCam) {
+            return { success: false };
+        }
+        return { success: true };
+    } else {
+        return { success: true };
     }
-
-    return { success: true };
 };
 
 // @desc get CAM details
