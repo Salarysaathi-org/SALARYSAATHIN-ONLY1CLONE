@@ -5,12 +5,15 @@ const leadSchema = new mongoose.Schema(
         fName: {
             type: String,
             required: true,
+            trim: true,
         },
         mName: {
             type: String,
+            trim: true,
         },
         lName: {
             type: String,
+            trim: true,
         },
         gender: {
             type: String,
@@ -24,8 +27,8 @@ const leadSchema = new mongoose.Schema(
         leadNo: {
             type: String,
             required: true,
-            unique:true,
-            sparse:true,
+            unique: true,
+            sparse: true,
         },
         aadhaar: {
             type: String,

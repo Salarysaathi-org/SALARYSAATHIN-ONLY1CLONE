@@ -5,10 +5,14 @@ const camSchema = new mongoose.Schema(
         leadId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Lead",
+            unique: true,
+            sparse: true,
         },
         leadNo: {
             type: String,
             required: true,
+            unique: true,
+            sparse: true,
         },
         details: {
             type: Object,
