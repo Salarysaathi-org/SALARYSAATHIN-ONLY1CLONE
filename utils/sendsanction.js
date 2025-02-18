@@ -60,7 +60,7 @@ export const generateSanctionLetter = async (
         const stepFour = await eSignStepFour(stepThree.data.referenceId);
 
         const letter = new FormData();
-        letter.append("from", "credit@qualoan.com");
+        letter.append("from", "info@salarysaathi.com");
         letter.append("to", `${lead.personalEmail}`);
         letter.append("subject", `${subject}`);
         letter.append(
