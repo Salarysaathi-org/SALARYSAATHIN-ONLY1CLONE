@@ -13,7 +13,78 @@ export const activeLeadsToVerify = asyncHandler(async (req, res) => {
         // const limit = parseInt(req.query.limit) || 10; // items per page
         // const skip = (page - 1) * limit;
 
+        // const pipeline = [
+        //     {
+        //         $match: {
+        //             data: {
+        //                 $elemMatch: {
+        //                     isActive: true,
+        //                     isDisbursed: true,
+        //                     isVerified: false,
+        //                     isClosed: false,
+        //                     $or: [
+        //                         { date: { $exists: true, $ne: null } },
+        //                         { amount: { $exists: true, $ne: 0 } },
+        //                         { utr: { $exists: true, $ne: 0 } },
+        //                         {
+        //                             partialPaid: {
+        //                                 $elemMatch: {
+        //                                     date: { $exists: true, $ne: null },
+        //                                     amount: { $exists: true, $gt: 0 },
+        //                                     utr: { $exists: true },
+        //                                     isPartlyPaid: { $ne: true },
+        //                                 },
+        //                             },
+        //                         },
+        //                         {
+        //                             requestedStatus: {
+        //                                 $exists: true,
+        //                                 $ne: null,
+        //                             },
+        //                         },
+        //                         { dpd: { $exists: true, $gt: 0 } },
+        //                     ],
+        //                 },
+        //             },
+        //         },
+        //     },
+        //     {
+        //         $project: {
+        //             data: {
+        //                 $filter: {
+        //                     input: "$data",
+        //                     as: "item",
+        //                     cond: {
+        //                         $and: [
+        //                             { $eq: ["$$item.isActive", true] },
+        //                             { $eq: ["$$item.isDisbursed", true] },
+        //                             { $eq: ["$$item.isVerified", false] },
+        //                             { $eq: ["$$item.isClosed", false] },
+        //                         ],
+        //                     },
+        //                 },
+        //             },
+        //         },
+        //     },
+        //     {
+        //         $addFields: {
+        //             data: { $arrayElemAt: ["$data", 0] },
+        //         },
+        //     },
+        //     {
+        //         $match: {
+        //             data: { $ne: null }, // Ensures that we only return documents with at least one matching data entry
+        //         },
+        //     },
+        //     {
+        //         $sort: {
+        //             updatedAt: -1,
+        //         },
+        //     },
+        // ];
+
         const pipeline = [
+            // Step 1: Filter documents where at least one 'data' entry matches the required conditions
             {
                 $match: {
                     data: {
@@ -48,6 +119,8 @@ export const activeLeadsToVerify = asyncHandler(async (req, res) => {
                     },
                 },
             },
+
+            // Step 2: Keep only the relevant 'data' elements in each document
             {
                 $project: {
                     data: {
@@ -66,44 +139,141 @@ export const activeLeadsToVerify = asyncHandler(async (req, res) => {
                     },
                 },
             },
+
+            // Step 3: Flatten 'data' array by taking the first matching element
             {
                 $addFields: {
                     data: { $arrayElemAt: ["$data", 0] },
                 },
             },
+
+            // Step 4: Ensure documents where 'data' is null are removed
             {
                 $match: {
-                    data: { $ne: null }, // Ensures that we only return documents with at least one matching data entry
+                    data: { $ne: null },
+                },
+            },
+
+            // Step 5: Lookup and populate disbursal details
+            {
+                $lookup: {
+                    from: "disbursals",
+                    localField: "data.disbursal",
+                    foreignField: "_id",
+                    as: "data.disbursal",
                 },
             },
             {
-                $sort: {
-                    updatedAt: -1,
+                $unwind: {
+                    path: "$data.disbursal",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+
+            // Step 6: Lookup and populate disbursedBy details, selecting only fName and lName
+            {
+                $lookup: {
+                    from: "employees",
+                    localField: "data.disbursal.disbursedBy",
+                    foreignField: "_id",
+                    as: "data.disbursal.disbursedBy",
+                },
+            },
+            {
+                $unwind: {
+                    path: "$data.disbursal.disbursedBy",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+
+            // Step 7: Lookup and populate lead details
+            {
+                $lookup: {
+                    from: "leads",
+                    localField: "data.leadNo",
+                    foreignField: "leadNo",
+                    as: "data.disbursal.lead",
+                },
+            },
+            {
+                $unwind: {
+                    path: "$data.disbursal.lead",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+
+            // Step 8: Lookup and populate camDetails
+            {
+                $lookup: {
+                    from: "camdetails",
+                    localField: "data.leadNo",
+                    foreignField: "leadNo",
+                    as: "data.camDetails",
+                },
+            },
+            {
+                $unwind: {
+                    path: "$data.camDetails",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+
+            // Step 9: Sort records by updatedAt (descending order)
+            { $sort: { updatedAt: -1 } },
+
+            // Step 10: Final Projection - Selecting only necessary fields
+            {
+                $project: {
+                    _id: 1,
+                    updatedAt: 1,
+                    "data.leadNo": "$data.leadNo",
+                    "data.loanNo": "$data.loanNo",
+
+                    // Lead Fields
+                    "lead.fName": "$data.disbursal.lead.fName",
+                    "lead.mName": "$data.disbursal.lead.mName",
+                    "lead.lName": "$data.disbursal.lead.lName",
+                    "lead.mobile": "$data.disbursal.lead.mobile",
+                    "lead.aadhaar": "$data.disbursal.lead.aadhaar",
+                    "lead.pan": "$data.disbursal.lead.pan",
+                    "lead.city": "$data.disbursal.lead.city",
+                    "lead.state": "$data.disbursal.lead.state",
+                    "lead.source": "$data.disbursal.lead.source",
+
+                    // CAM Details
+                    "camDetails.loanRecommended":
+                        "$data.camDetails.details.loanRecommended",
+                    "camDetails.salary":
+                        "$data.camDetails.details.actualNetSalary",
+
+                    // Disbursed By Fields (Only fName and lName)
+                    "disbursedBy.fName": "$data.disbursal.disbursedBy.fName",
+                    "disbursedBy.lName": "$data.disbursal.disbursedBy.lName",
                 },
             },
         ];
 
-        const results = await Closed.aggregate(pipeline).sort({
+        const leadsToVerify = await Closed.aggregate(pipeline).sort({
             updatedAt: -1,
         });
         // Populate the filtered data
-        const leadsToVerify = await Closed.populate(results, {
-            path: "data.disbursal",
-            populate: {
-                path: "sanction", // Populating the 'sanction' field in Disbursal
-                populate: [
-                    { path: "approvedBy" },
-                    {
-                        path: "application",
-                        populate: [
-                            { path: "lead", populate: { path: "documents" } }, // Nested populate for lead and documents
-                            { path: "creditManagerId" }, // Populate creditManagerId
-                            { path: "recommendedBy" },
-                        ],
-                    },
-                ],
-            },
-        });
+        // const leadsToVerify = await Closed.populate(results, {
+        //     path: "data.disbursal",
+        //     populate: {
+        //         path: "sanction", // Populating the 'sanction' field in Disbursal
+        //         populate: [
+        //             { path: "approvedBy" },
+        //             {
+        //                 path: "application",
+        //                 populate: [
+        //                     { path: "lead", populate: { path: "documents" } }, // Nested populate for lead and documents
+        //                     { path: "creditManagerId" }, // Populate creditManagerId
+        //                     { path: "recommendedBy" },
+        //                 ],
+        //             },
+        //         ],
+        //     },
+        // });
 
         const totalActiveLeadsToVerify = await Closed.countDocuments({
             "data.isActive": true,

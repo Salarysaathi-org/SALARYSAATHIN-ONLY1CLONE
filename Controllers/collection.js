@@ -8,7 +8,6 @@ import { postLogs } from "./logs.js";
 // @route POST /api/collections/
 export const createActiveLead = async (pan, loanNo, leadNo) => {
     try {
-        console.log(pan, loanNo, leadNo);
         const existingActiveLead = await Closed.findOne({ pan: pan });
         if (!existingActiveLead) {
             const newActiveLead = await Closed.create({
@@ -100,34 +99,31 @@ export const activeLeads = asyncHandler(async (req, res) => {
         const activeLeads = await Closed.aggregate([
             {
                 $match: {
+                    data: {
+                        $elemMatch: {
+                            isActive: true,
+                            isDisbursed: true,
+                            isClosed: false,
+                        },
+                    },
+                },
+            },
+            {
+                $unwind: {
+                    path: "$data",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+            {
+                $match: {
                     "data.isActive": true,
                     "data.isDisbursed": true,
                     "data.isClosed": false,
                 },
             },
             {
-                $addFields: {
-                    data: {
-                        $filter: {
-                            input: "$data",
-                            as: "item",
-                            cond: {
-                                $and: [
-                                    { $eq: ["$$item.isActive", true] },
-                                    { $eq: ["$$item.isDisbursed", true] },
-                                    { $eq: ["$$item.isClosed", false] },
-                                ],
-                            },
-                        },
-                    },
-                },
-            },
-            {
-                $unwind: "$data", // Ensure `data` becomes a single object, not an array
-            },
-            {
                 $lookup: {
-                    from: "disbursals", // Replace with the actual collection name for disbursals
+                    from: "disbursals",
                     localField: "data.disbursal",
                     foreignField: "_id",
                     as: "data.disbursal",
@@ -141,117 +137,80 @@ export const activeLeads = asyncHandler(async (req, res) => {
             },
             {
                 $lookup: {
-                    from: "sanctions", // Replace with the actual collection name for sanctions
-                    localField: "data.disbursal.sanction",
+                    from: "employees",
+                    localField: "data.disbursal.disbursedBy",
                     foreignField: "_id",
-                    as: "data.disbursal.sanction",
+                    as: "data.disbursal.disbursedBy",
                 },
             },
             {
                 $unwind: {
-                    path: "$data.disbursal.sanction",
+                    path: "$data.disbursal.disbursedBy",
                     preserveNullAndEmptyArrays: true,
                 },
             },
             {
                 $lookup: {
-                    from: "applications", // Replace with the actual collection name for applications
-                    localField: "data.disbursal.sanction.application",
-                    foreignField: "_id",
-                    as: "data.disbursal.sanction.application",
+                    from: "leads",
+                    localField: "data.leadNo",
+                    foreignField: "leadNo",
+                    as: "data.disbursal.lead",
                 },
             },
             {
                 $unwind: {
-                    path: "$data.disbursal.sanction.application",
+                    path: "$data.disbursal.lead",
                     preserveNullAndEmptyArrays: true,
                 },
             },
             {
                 $lookup: {
-                    from: "leads", // Replace with the actual collection name for leads
-                    localField: "data.disbursal.sanction.application.lead",
-                    foreignField: "_id",
-                    as: "data.disbursal.sanction.application.lead",
+                    from: "camdetails",
+                    localField: "data.leadNo",
+                    foreignField: "leadNo",
+                    as: "data.camDetails",
                 },
             },
             {
                 $unwind: {
-                    path: "$data.disbursal.sanction.application.lead",
+                    path: "$data.camDetails",
                     preserveNullAndEmptyArrays: true,
-                },
-            },
-            {
-                $lookup: {
-                    from: "documents", // Replace with the actual collection name for documents
-                    localField:
-                        "data.disbursal.sanction.application.lead.documents",
-                    foreignField: "_id",
-                    as: "data.disbursal.sanction.application.lead.documents",
                 },
             },
             {
                 $sort: { updatedAt: -1 },
             },
+            {
+                $project: {
+                    _id: 1,
+                    updatedAt: 1,
+
+                    "data.leadNo": "$data.leadNo",
+                    "data.loanNo": "$data.loanNo",
+
+                    // Lead Fields (Corrected path)
+                    "lead.fName": "$data.disbursal.lead.fName",
+                    "lead.mName": "$data.disbursal.lead.mName",
+                    "lead.lName": "$data.disbursal.lead.lName",
+                    "lead.mobile": "$data.disbursal.lead.mobile",
+                    "lead.aadhaar": "$data.disbursal.lead.aadhaar",
+                    "lead.pan": "$data.disbursal.lead.pan",
+                    "lead.city": "$data.disbursal.lead.city",
+                    "lead.state": "$data.disbursal.lead.state",
+                    "lead.source": "$data.disbursal.lead.source",
+
+                    // CAM Details
+                    "camDetails.loanRecommended":
+                        "$data.camDetails.details.loanRecommended",
+                    "camDetails.salary":
+                        "$data.camDetails.details.actualNetSalary",
+
+                    // Disbursed By Fields (Corrected path)
+                    "disbursedBy.fName": "$data.disbursal.disbursedBy.fName",
+                    "disbursedBy.lName": "$data.disbursal.disbursedBy.lName",
+                },
+            },
         ]);
-
-        // const activeLeads = await Closed.find(
-        //     {
-        //         "data.isActive": true, // Ensure at least one element in `data` has isActive: true
-        //         "data.isDisbursed": true, // Ensure at least one element in `data` has isDisbursed: true
-        //         "data.isClosed": false, // Ensure no matching element is closed
-        //     },
-        //     {
-        //         pan: 1, // Include `pan` in the output
-        //         data: {
-        //             $elemMatch: {
-        //                 isActive: true,
-        //                 isDisbursed: true,
-        //                 isClosed: false,
-        //             },
-        //         },
-        //     }
-        // )
-        //     .sort({ updatedAt: -1 })
-        //     .populate({
-        //         path: "data.disbursal",
-        //         populate: {
-        //             path: "sanction", // Populating the 'sanction' field in Disbursal
-        //             populate: [
-        //                 { path: "approvedBy" },
-        //                 {
-        //                     path: "application",
-        //                     populate: [
-        //                         {
-        //                             path: "lead",
-        //                             populate: { path: "documents" },
-        //                         }, // Nested populate for lead and documents
-        //                         { path: "creditManagerId" }, // Populate creditManagerId
-        //                         { path: "recommendedBy" },
-        //                     ],
-        //                 },
-        //             ],
-        //         },
-        //     });
-
-        // Populate the filtered data
-        // const activeLeads = await Closed.populate(results, {
-        //     path: "data.disbursal",
-        //     populate: {
-        //         path: "sanction", // Populating the 'sanction' field in Disbursal
-        //         populate: [
-        //             { path: "approvedBy" },
-        //             {
-        //                 path: "application",
-        //                 populate: [
-        //                     { path: "lead", populate: { path: "documents" } }, // Nested populate for lead and documents
-        //                     { path: "creditManagerId" }, // Populate creditManagerId
-        //                     { path: "recommendedBy" },
-        //                 ],
-        //             },
-        //         ],
-        //     },
-        // });
 
         const totalActiveLeads = await Closed.countDocuments({
             "data.isActive": true,
@@ -283,20 +242,23 @@ export const getActiveLead = asyncHandler(async (req, res) => {
         }
     ).populate({
         path: "data.disbursal",
-        populate: {
-            path: "sanction", // Populating the 'sanction' field in Disbursal
-            populate: [
-                { path: "approvedBy" },
-                {
-                    path: "application",
-                    populate: [
-                        { path: "lead", populate: { path: "documents" } }, // Nested populate for lead and documents
-                        { path: "creditManagerId" }, // Populate creditManagerId
-                        { path: "recommendedBy" },
-                    ],
-                },
-            ],
-        },
+        populate: [
+            {
+                path: "sanction", // Populating the 'sanction' field in Disbursal
+                populate: [
+                    { path: "approvedBy" },
+                    {
+                        path: "application",
+                        populate: [
+                            { path: "lead", populate: { path: "documents" } }, // Nested populate for lead and documents
+                            { path: "creditManagerId" }, // Populate creditManagerId
+                            { path: "recommendedBy" },
+                        ],
+                    },
+                ],
+            },
+            { path: "disbursedBy", select: "fName lName" }, // ✅ Added this to populate disbursedBy
+        ],
     });
 
     if (!activeRecord) {
@@ -434,28 +396,150 @@ export const closedLeads = asyncHandler(async (req, res) => {
     // const limit = parseInt(req.query.limit) || 10; // items per page
     // const skip = (page - 1) * limit;
 
-    const closedLeads = await Closed.find({
-        "data.isActive": false,
-        "data.isClosed": true,
-    })
-        .populate({
-            path: "data.disbursal",
-            populate: {
-                path: "sanction", // Populating the 'sanction' field in Disbursal
-                populate: [
-                    { path: "approvedBy" },
+    const closedLeads = await Closed.aggregate([
+        { $unwind: "$data" }, // Flatten the data array
+
+        // Match closed leads
+        {
+            $match: {
+                "data.isActive": false,
+                "data.isClosed": true,
+            },
+        },
+
+        // Sort by updatedAt (latest first)
+        { $sort: { "data.updatedAt": -1 } },
+
+        // Lookup lead details using leadNo
+        {
+            $lookup: {
+                from: "leads",
+                localField: "data.leadNo",
+                foreignField: "leadNo",
+                as: "data.lead",
+                pipeline: [
                     {
-                        path: "application",
-                        populate: [
-                            { path: "lead", populate: { path: "documents" } }, // Nested populate for lead and documents
-                            { path: "creditManagerId" }, // Populate creditManagerId
-                            { path: "recommendedBy" },
-                        ],
+                        $project: {
+                            _id: 0,
+                            fName: 1,
+                            mName: 1,
+                            lName: 1,
+                            mobile: 1,
+                            aadhaar: 1,
+                            pan: 1,
+                            city: 1,
+                            state: 1,
+                            source: 1,
+                        },
                     },
                 ],
             },
-        })
-        .sort({ updatedAt: -1 });
+        },
+        { $unwind: { path: "$data.lead", preserveNullAndEmptyArrays: true } },
+
+        // Lookup camDetails using leadNo
+        {
+            $lookup: {
+                from: "camdetails",
+                localField: "data.leadNo",
+                foreignField: "leadNo",
+                as: "data.camDetails",
+                pipeline: [
+                    {
+                        $project: {
+                            _id: 0,
+                            loanRecommended: "$details.loanRecommended",
+                            actualNetSalary: "$details.actualNetSalary",
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            $unwind: {
+                path: "$data.camDetails",
+                preserveNullAndEmptyArrays: true,
+            },
+        }, // Convert array to object
+
+        // Extract disbursedBy from disbursal (without projecting the whole disbursal object)
+        {
+            $lookup: {
+                from: "disbursals",
+                localField: "data.leadNo",
+                foreignField: "leadNo",
+                as: "data.disbursal",
+                pipeline: [
+                    {
+                        $project: {
+                            _id: 0,
+                            sanction: 1,
+                            isRejected: 1,
+                            disbursedBy: 1, // Only fetch disbursedBy field
+                        },
+                    },
+                ],
+            },
+        },
+        { $unwind: { path: "$disbursal", preserveNullAndEmptyArrays: true } },
+        {
+            $match: {
+                // Assuming 'rejected' is a field in disbursal indicating rejection status
+                "data.disbursal.isRejected": { $ne: true },
+            },
+        },
+        {
+            $lookup: {
+                from: "sanctions",
+                localField: "data.disbursal.sanction",
+                foreignField: "_id",
+                as: "data.disbursal.sanction",
+                pipeline: [
+                    {
+                        $project: {
+                            _id: 0,
+                            isRejected: 1,
+                        },
+                    },
+                ],
+            },
+        },
+        { $unwind: { path: "$sanction", preserveNullAndEmptyArrays: true } },
+        {
+            $match: {
+                // Assuming 'rejected' is a field in sanction indicating rejection status
+                "data.sanction.isRejected": { $ne: true },
+            },
+        },
+
+        // Lookup employee details for disbursedBy
+        {
+            $lookup: {
+                from: "employees",
+                localField: "data.disbursal.disbursedBy",
+                foreignField: "_id",
+                as: "data.disbursal.disbursedBy",
+                pipeline: [
+                    {
+                        $project: {
+                            _id: 0,
+                            fName: 1, // Only fetch the employee name
+                            lName: 1,
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            $unwind: {
+                path: "$data.disbursal.disbursedBy",
+                preserveNullAndEmptyArrays: true,
+            },
+        }, // Convert array to object
+
+        // Make data the root document instead of wrapping inside closedLeads
+        { $replaceRoot: { newRoot: "$data" } },
+    ]);
 
     const totalClosedLeads = await Closed.countDocuments({
         "data.isActive": false,
