@@ -22,6 +22,7 @@ export const generateAadhaarLink = asyncHandler(async (req, res) => {
     req.session.token = token;
 
     const customerName = `${fName}${mName && ` ${mName}`} ${lName}`;
+    const subject = "Aadhaar Verification";
     const link = `https://api.salarysaathi.com/verify-aadhaar/${id}`;
     // const link = `http://localhost:8080/verify-aadhaar/${id}`;
     // const result = await aadhaarKyc(lead.mobile, lead.fName, lead.lName, link);
@@ -35,7 +36,7 @@ export const generateAadhaarLink = asyncHandler(async (req, res) => {
     //     `<p>To verify your aadhaar click on <strong>${link}</strong>.</p>`
     // );
 
-    await sendEmail(customerName, personalEmail, link);
+    await sendEmail(customerName, subject, personalEmail, link);
     await postLogs(
         id,
         "AADHAAR LINK SENT TO THE CUSTOMER",

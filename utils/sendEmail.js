@@ -1,6 +1,6 @@
 import axios from "axios";
 
-async function sendEmail(recipientName, recipient, link) {
+async function sendEmail(recipientName, subject, recipient, link) {
     try {
         const options = {
             method: "POST",
