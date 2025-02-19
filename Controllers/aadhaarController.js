@@ -26,16 +26,16 @@ export const generateAadhaarLink = asyncHandler(async (req, res) => {
     // const link = `http://localhost:8080/verify-aadhaar/${id}`;
     // const result = await aadhaarKyc(lead.mobile, lead.fName, lead.lName, link);
 
-    const formData = new FormData();
-    formData.append("from", "info@salarysaathi.com");
-    formData.append("to", `${personalEmail}`);
-    formData.append("subject", "Aadhaar Verification");
-    formData.append(
-        "html",
-        `<p>To verify your aadhaar click on <strong>${link}</strong>.</p>`
-    );
+    // const formData = new FormData();
+    // formData.append("from", "info@salarysaathi.com");
+    // formData.append("to", `${personalEmail}`);
+    // formData.append("subject", "Aadhaar Verification");
+    // formData.append(
+    //     "html",
+    //     `<p>To verify your aadhaar click on <strong>${link}</strong>.</p>`
+    // );
 
-    await sendEmail(formData);
+    await sendEmail(customerName, personalEmail, link);
     await postLogs(
         id,
         "AADHAAR LINK SENT TO THE CUSTOMER",
