@@ -351,16 +351,32 @@ export const updateActiveLead = asyncHandler(async (req, res) => {
 
             let updateOperation = {};
 
+            // if (updates.data.partialPaid) {
+            //     // If partialPaid is present in the updates, push the object into the array
+            //     updateOperation.$push = {
+            //         "data.$.partialPaid": updates.data.partialPaid,
+            //         "data.$.requestedStatus": updates.data.requestedStatus,
+            //     };
+            // } else {
+            //     updateOperation.$set = {
+            //         "data.$": { ...populatedRecord.data[0], ...updates.data }, // Merge updates
+            //     };
+            // }
+
             if (updates.data.partialPaid) {
-                // If partialPaid is present in the updates, push the object into the array
                 updateOperation.$push = {
                     "data.$.partialPaid": updates.data.partialPaid,
+                };
+                updateOperation.$set = {
                     "data.$.requestedStatus": updates.data.requestedStatus,
+                    "data.$.updatedAt": new Date(),
                 };
             } else {
-                updateOperation.$set = {
-                    "data.$": { ...populatedRecord.data[0], ...updates.data }, // Merge updates
-                };
+                updateOperation.$set = {};
+                Object.keys(updates.data).forEach((key) => {
+                    updateOperation.$set[`data.$.${key}`] = updates.data[key];
+                });
+                updateOperation.$set["data.$.updatedAt"] = new Date();
             }
 
             const updatedRecord = await Closed.findOneAndUpdate(
