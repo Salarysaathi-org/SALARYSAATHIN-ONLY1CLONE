@@ -33,7 +33,7 @@ import axios from "axios";
 export const verifyBank = async (bankAccNo, ifscCode) => {
     try {
         let data = {
-            accNo: `${bankAccNo}`,
+            accountNumber: `${bankAccNo}`,
             ifsc: `${ifscCode}`,
         };
 
