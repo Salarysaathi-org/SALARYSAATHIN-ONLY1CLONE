@@ -9,8 +9,11 @@ const collectionSchema = new mongoose.Schema(
         leadNo: {
             type: String,
             unique: true,
-            required: true,
             sparse: true,
+            required: function () {
+                // If document is new OR being updated, require leadNo
+                return this.isNew || this.leadNo !== undefined;
+            },
         },
         loanNo: { type: String, required: true },
         isDisbursed: { type: Boolean, default: false },
