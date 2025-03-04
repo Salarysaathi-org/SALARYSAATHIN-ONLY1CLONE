@@ -1,6 +1,8 @@
 import axios from "axios";
 import { Parser } from "xml2js";
 import { htmlToPdf } from "./htmlToPdf.js";
+import { stateCode } from "./stateCode.js";
+import { generateRandomWord } from "./randomFatherName.js";
 
 async function cibilPdf(lead, docs) {
     const parser = new Parser();
@@ -11,6 +13,9 @@ async function cibilPdf(lead, docs) {
     const dateInIST = new Date(dateOfBirthUTC).toLocaleDateString("en-CA", {
         timeZone: "Asia/Kolkata", // Specify Indian time zone
     });
+
+    const fatherName = generateRandomWord();
+    const state = stateCode(lead.state);
 
     const options = {
         method: "POST",
@@ -56,15 +61,19 @@ async function cibilPdf(lead, docs) {
                         <ns:LastName>${lead.lName}</ns:LastName>
                         <ns:FamilyDetails>
                             <ns:AdditionalNameInfo seq="1">
-                                <ns:AdditionalName>SUMIT</ns:AdditionalName>
+                                <ns:AdditionalName>${fatherName}</ns:AdditionalName>
                                 <ns:AdditionalNameType>K01</ns:AdditionalNameType>
                             </ns:AdditionalNameInfo>
                             <ns:NoOfDependents></ns:NoOfDependents>
                         </ns:FamilyDetails>
-                        <ns:AddrLine1>NEW DELHI DELHI</ns:AddrLine1>
-                        <ns:City></ns:City>
-                        <ns:State>DL</ns:State>
-                        <ns:Postal>110057</ns:Postal>
+                        <ns:AddrLine1>${
+                            lead.city === "NA" ? lead.state : lead.city
+                        }</ns:AddrLine1>
+                        <ns:City>${
+                            lead.city === "NA" ? "" : lead.city
+                        }</ns:City>
+                        <ns:State>${state}</ns:State>
+                        <ns:Postal>${lead.pinCode}</ns:Postal>
                         <ns:DOB>${dateInIST}</ns:DOB>
                         <ns:Gender>${lead.gender}</ns:Gender>
                         <ns:MaritalStatus></ns:MaritalStatus>

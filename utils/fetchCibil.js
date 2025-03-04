@@ -1,9 +1,12 @@
 import axios from "axios";
 import { yyyy_mm_dd } from "./dateFormatter.js";
+import { stateCode } from "./stateCode.js";
 
 async function fetchCibil(lead) {
     try {
-        const { fName, mName, lName, dob, mobile, pan } = lead;
+        const { fName, mName, lName, dob, mobile, pan, city, pinCode } = lead;
+        const state = stateCode(lead.state);
+
         const data = {
             RequestHeader: {
                 CustomerId: "9757",
@@ -24,9 +27,9 @@ async function fetchCibil(lead) {
                     {
                         seq: "1",
                         AddressType: ["H"],
-                        AddressLine1: "new delhi ",
-                        State: "DL",
-                        Postal: "110057",
+                        AddressLine1: `${city}`,
+                        State: `${state}`,
+                        Postal: `${pinCode}`,
                     },
                 ],
                 InquiryPhones: [
