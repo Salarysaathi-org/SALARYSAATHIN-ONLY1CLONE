@@ -1,5 +1,5 @@
 export function stateCode(state) {
-    let lowerState = state.toLowerCase();
+    let lowerState = state.trim().toLowerCase();
     const code = {
         "andaman and nicobar islands": "AN",
         "andhra pradesh": "AP",
