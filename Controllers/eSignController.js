@@ -97,6 +97,7 @@ export const eSignStepFour = async (referenceId) => {
 // @access Public
 export const eSignWebhook = asyncHandler(async (req, res) => {
     const data = req.body;
+    const time = new Date();
     if (data.responseCode === "EUN951") {
         const lead = await Lead.findOne({ referenceId: data.referenceId });
         logs = await postLogs(
@@ -109,7 +110,6 @@ export const eSignWebhook = asyncHandler(async (req, res) => {
         );
     }
     if (data.data.dscData && Object.keys(data.data.dscData).length > 0) {
-        const time = new Date();
         const response = await getDoc(data.referenceId, data, time);
         if (!response.success) {
             res.status(400);
