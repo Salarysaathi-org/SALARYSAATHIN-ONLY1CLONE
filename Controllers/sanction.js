@@ -431,24 +431,144 @@ export const sanctioned = asyncHandler(async (req, res) => {
             $or: [{ eSigned: { $eq: true } }, { eSignPending: { $eq: true } }],
         };
     }
-    const sanction = await Sanction.find(query)
-        .skip(skip)
-        .limit(limit)
-        .sort({ updatedAt: -1 })
-        .populate({
-            path: "application",
-            populate: [
-                { path: "lead", populate: { path: "documents" } },
-                { path: "recommendedBy", select: "fName mName lName" },
-            ],
-        });
+    const sanction = await Sanction.aggregate([
+        { $match: query },
+        // { $skip: skip },
+        // { $limit: limit },
 
+        // Lookup Application
+        {
+            $lookup: {
+                from: "applications",
+                localField: "application",
+                foreignField: "_id",
+                as: "application",
+                pipeline: [
+                    {
+                        $project: {
+                            recommendedBy: 1,
+                            _id: 0,
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            $set: {
+                recommendedBy: {
+                    $arrayElemAt: ["$application.recommendedBy", 0],
+                },
+            },
+        },
+        {
+            $unset: "application", // Remove the now-unneeded application field
+        },
+
+        // Lookup Lead
+        {
+            $lookup: {
+                from: "leads",
+                localField: "leadNo",
+                foreignField: "leadNo",
+                as: "lead",
+                pipeline: [
+                    {
+                        $project: {
+                            _id: 1,
+                            fName: 1,
+                            mName: 1,
+                            lName: 1,
+                            pan: 1,
+                            aadhaar: 1,
+                            mobile: 1,
+                            city: 1,
+                            state: 1,
+                            source: 1,
+                            // salary: 1,
+                            // loanAmount: 1,
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            $set: {
+                lead: { $arrayElemAt: ["$lead", 0] },
+            },
+        },
+
+        // Lookup CAM Details
+        {
+            $lookup: {
+                from: "camdetails",
+                localField: "lead._id", // Correctly resolved lead ID
+                foreignField: "leadId",
+                as: "camDetails",
+                pipeline: [
+                    {
+                        $project: {
+                            _id: 0,
+                            loanRecommended: "$details.loanRecommended",
+                            actualNetSalary: "$details.actualNetSalary",
+                        },
+                    },
+                ],
+            },
+        },
+        { $set: { camDetails: { $arrayElemAt: ["$camDetails", 0] } } },
+
+        // Lookup RecommendedBy (Users)
+        {
+            $lookup: {
+                from: "employees",
+                localField: "recommendedBy",
+                foreignField: "_id",
+                as: "recommendedBy",
+                pipeline: [
+                    {
+                        $project: {
+                            fName: 1,
+                            lName: 1,
+                            _id: 0,
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            $set: {
+                recommendedBy: { $arrayElemAt: ["$recommendedBy", 0] },
+            },
+        },
+        { $sort: { updatedAt: -1 } },
+
+        // Final Projection
+        {
+            $project: {
+                leadNo: 1,
+                loanNo: 1,
+                "lead.fName": 1,
+                "lead.mName": 1,
+                "lead.lName": 1,
+                "lead.pan": 1,
+                "lead.mobile": 1,
+                "lead.aadhaar": 1,
+                "lead.city": 1,
+                "lead.state": 1,
+                "lead.source": 1,
+                "recommendedBy.fName": 1,
+                "recommendedBy.lName": 1,
+                "camDetails.loanRecommended": 1,
+                "camDetails.actualNetSalary": 1,
+            },
+        },
+    ]);
     const totalSanctions = await Sanction.countDocuments(query);
 
     return res.json({
         totalSanctions,
-        totalPages: Math.ceil(totalSanctions / limit),
-        currentPage: page,
+        // totalPages: Math.ceil(totalSanctions / limit),
+        // currentPage: page,
         sanction,
     });
 });
