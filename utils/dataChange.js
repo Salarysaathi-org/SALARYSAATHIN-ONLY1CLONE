@@ -6,17 +6,27 @@ import Closed from "../models/Closed.js";
 import Disbursal from "../models/Disbursal.js";
 import Lead from "../models/Leads.js";
 import Documents from "../models/Documents.js";
+import AadhaarDetails from "../models/AadhaarDetails.js";
 import Sanction from "../models/Sanction.js";
 import Employee from "../models/Employees.js";
-import moment from "moment";
+import moment from "moment-timezone";
 import xlsx from "xlsx";
 import fs from "fs";
 import Bank from "../models/ApplicantBankDetails.js";
 import { formatFullName } from "./nameFormatter.js";
 import { nextSequence } from "../utils/nextSequence.js";
 import LeadStatus from "../models/LeadStatus.js";
+import S3 from "aws-sdk/clients/s3.js";
+import { sanctionLetter } from "./sanctionLetter.js";
 
 const mongoURI = process.env.MONGO_URI;
+
+const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+const region = process.env.AWS_REGION;
+const BUCKET_NAME = process.env.AWS_BUCKET_NAME;
+
+const s3 = new S3({ region, accessKeyId, secretAccessKey });
 
 // MongoDB Connection
 async function connectToDatabase() {
@@ -824,167 +834,241 @@ export const exportApprovedSanctions = async () => {
 
 export const exportDisbursedData = async () => {
     try {
-        const disbursals = await Disbursal.find({
-            isDisbursed: true,
-        })
+        const formatDate = (date) =>
+            date
+                ? moment(date).tz("Asia/Kolkata").format("DD MMM YYYY")
+                : "N/A";
+
+        // Fetch disbursed records with necessary fields
+        const disbursals = await Disbursal.find(
+            { isDisbursed: true },
+            {
+                loanNo: 1,
+                amount: 1,
+                pan: 1,
+                utr: 1,
+                payableAccount: 1,
+                disbursedAt: 1,
+                sanction: 1,
+            }
+        )
             .populate({
                 path: "sanction",
+                select: "application approvedBy",
                 populate: [
                     {
                         path: "application",
+                        select: "applicant lead recommendedBy",
                         populate: [
                             {
-                                path: "applicant",
-                            },
-                            {
                                 path: "lead",
-                                populate: [
-                                    {
-                                        path: "recommendedBy",
-                                        // path:"CamDetails"
-                                    },
-                                ],
+                                select: "fName mName lName pan gender dob aadhaar mobile alternateMobile personalEmail officeEmail recommendedBy createdAt",
+                                populate: {
+                                    path: "recommendedBy",
+                                    select: "fName mName lName",
+                                },
                             },
                             {
-                                path: "recommendedBy",
+                                path: "recommendedBy", // <-- Explicitly populating application.recommendedBy
+                                select: "fName mName lName",
+                            },
+                            {
+                                path: "applicant", // <-- Explicitly populating application.applicant
+                                select: "residence employment",
                             },
                         ],
                     },
                     {
                         path: "approvedBy",
+                        select: "fName mName lName",
                     },
                 ],
             })
             .lean();
 
-        if (disbursals.length === 0) {
-            console.log("No data found.");
-            return;
-        }
+        // Extract necessary IDs for batch queries
+        const leadIds = disbursals
+            .map((d) => d.sanction?.application?.lead?._id)
+            .filter(Boolean);
+        const aadhaarNumbers = disbursals
+            .map((d) => d.sanction?.application?.lead?.aadhaar)
+            .filter(Boolean);
+        const borrowerIds = disbursals
+            .map((d) => d.sanction?.application?.applicant)
+            .filter(Boolean);
+        const loanNumbers = disbursals.map((d) => d.loanNo).filter(Boolean);
 
-        const data = (
-            await Promise.all(
-                disbursals.map(async (disbursed) => {
-                    const {
-                        sanction,
-                        sanction: {
-                            application,
-                            application: {
-                                lead,
-                                lead: {
-                                    fName,
-                                    mName,
-                                    lName,
-                                    createdAt: leadCreated,
-                                    recommendedBy: leadRecommendedBy,
-                                } = {},
-                                recommendedBy: applicationRecommendedBy,
-                            } = {},
-                            approvedBy,
-                        } = {},
-                    } = disbursed;
-                    console.log("lead", lead);
-                    if (
-                        !lead ||
-                        ["AVZPC6217D", "CYWPP7344C"].includes(lead.pan)
-                    )
-                        return null;
+        // Fetch related data in parallel
+        const [cams, aadhaars, banks, disbursedDates] = await Promise.all([
+            CamDetails.find(
+                { leadId: { $in: leadIds } },
+                "leadId details.loanRecommended details.roi details.actualNetSalary details.eligibleTenure details.repaymentAmount details.netAdminFeeAmount details.adminFeePercentage details.repaymentDate"
+            ).lean(),
+            AadhaarDetails.find(
+                { uniqueId: { $in: aadhaarNumbers } },
+                "uniqueId details.address.state"
+            ).lean(),
+            Bank.find(
+                { borrowerId: { $in: borrowerIds } },
+                "borrowerId accountType bankName beneficiaryName bankAccNo ifscCode"
+            ).lean(),
+            Disbursal.find(
+                { loanNo: { $in: loanNumbers }, isDisbursed: true },
+                "loanNo disbursedAt pan"
+            ).lean(),
+        ]);
 
-                    const cam = await CamDetails.findOne({
-                        leadId: lead._id.toString(),
-                    });
-                    const bank = await Bank.findOne({
-                        borrowerId: disbursed.sanction.application.applicant,
-                    });
-
-                    const createdDate = leadCreated.toLocaleString("en-US", {
-                        month: "short",
-                        day: "2-digit",
-                        year: "numeric",
-                        timeZone: "Asia/Kolkata",
-                    });
-
-                    const disbursedDate = disbursed.disbursedAt.toLocaleString(
-                        "en-US",
-                        {
-                            month: "short",
-                            day: "2-digit",
-                            year: "numeric",
-                            timeZone: "Asia/Kolkata",
-                        }
-                    );
-                    const repaymentDate =
-                        cam?.details?.repaymentDate.toLocaleString("en-US", {
-                            month: "short",
-                            day: "2-digit",
-                            year: "numeric",
-                            timeZone: "Asia/Kolkata",
-                        });
-
-                    return {
-                        "Lead Created": createdDate || "N/A",
-                        "Disbursed Date": disbursedDate || "N/A",
-                        "Repayment Date": repaymentDate,
-                        "Loan No": disbursed.loanNo || "N/A",
-                        Name: `${lead.fName || ""} ${lead.mName || ""} ${
-                            lead.lName || ""
-                        }`.trim(),
-                        PAN: lead.pan || "N/A",
-                        "Sanctioned Amount": cam?.details?.loanRecommended || 0,
-                        ROI: cam?.details?.roi,
-                        Tenure: cam?.details?.eligibleTenure,
-                        "Interest Amount":
-                            Number(cam?.details?.repaymentAmount) -
-                            Number(cam?.details?.loanRecommended),
-                        "Disbursed Amount": disbursed.amount || 0,
-                        PF: cam?.details?.netAdminFeeAmount || 0,
-                        "PF%": cam?.details?.adminFeePercentage || 0,
-                        "Beneficiary Bank Name": bank?.bankName || "N/A",
-                        accountNo: bank?.bankAccNo || "N/A",
-                        IFSC: bank?.ifscCode || "N/A",
-                        utr: disbursed.urt,
-                        Screener: formatFullName(
-                            lead.recommendedBy.fName,
-                            lead.recommendedBy.mName,
-                            lead.recommendedBy.lName
-                        ),
-                        "Credit Manager": formatFullName(
-                            application.recommendedBy.fName,
-                            application.recommendedBy.mName,
-                            application.recommendedBy.lName
-                        ),
-                        "Sanctioned By": formatFullName(
-                            approvedBy.fName,
-                            approvedBy.mName,
-                            approvedBy.lName
-                        ),
-                        "Residence Address":
-                            sanction.application.applicant.residence.address,
-                        "Residence City":
-                            sanction.application.applicant.residence.city,
-                        "Residence State":
-                            sanction.application.applicant.residence.state,
-                        "Residence Pincode":
-                            sanction.application.applicant.residence.pincode,
-                    };
-                })
-            )
-        ).filter((entry) => entry !== null);
-
-        return data;
-    } catch (error) {
-        console.error(
-            "Error generating Excel file:",
-            error
-            // error.stack
+        // Create lookup maps for fast access
+        const camMap = Object.fromEntries(
+            cams.map((cam) => [cam.leadId.toString(), cam])
         );
+        const aadhaarMap = Object.fromEntries(
+            aadhaars.map((a) => [a.uniqueId, a])
+        );
+        const bankMap = Object.fromEntries(
+            banks.map((b) => [b.borrowerId.toString(), b])
+        );
+        const disbursedMap = disbursedDates.reduce((acc, d) => {
+            acc[d.pan] = acc[d.pan] || [];
+            acc[d.pan].push(d);
+            return acc;
+        }, {});
+
+        // Process and map data efficiently
+        const disbursedData = disbursals
+            .map((disbursed) => {
+                const {
+                    sanction,
+                    loanNo,
+                    amount,
+                    pan,
+                    utr,
+                    payableAccount,
+                    disbursedAt,
+                } = disbursed;
+                const application = sanction?.application;
+                const lead = application?.lead;
+                const applicant = application?.applicant;
+                const approvedBy = sanction?.approvedBy;
+
+                if (
+                    !lead ||
+                    [
+                        "IUUPK1335L",
+                        "AVZPC6217D",
+                        "IJXPD6084F",
+                        "HKCPK6182A",
+                        "DVWPG0881D",
+                        "EMOPA6923C",
+                        "KBHPS9785J",
+                    ].includes(lead.pan)
+                ) {
+                    return null;
+                }
+
+                const cam = camMap[lead._id?.toString()];
+                const aadhaarDetails = aadhaarMap[lead.aadhaar];
+                const bank = bankMap[applicant?._id?.toString()];
+
+                // Determine loan status
+                const loanDisbursalDates = (disbursedMap[pan] || []).sort(
+                    (a, b) => new Date(a.disbursedAt) - new Date(b.disbursedAt)
+                );
+                const status =
+                    loanDisbursalDates.findIndex(
+                        (d) =>
+                            d.disbursedAt.toISOString() ===
+                            disbursedAt.toISOString()
+                    ) === 0
+                        ? "FRESH"
+                        : `REPEAT-${loanDisbursalDates.findIndex(
+                              (d) =>
+                                  d.disbursedAt.toISOString() ===
+                                  disbursedAt.toISOString()
+                          )}`;
+
+                // Prepare structured data
+                return {
+                    "Lead Created": formatDate(lead.createdAt),
+                    "Disbursed Date": formatDate(disbursedAt),
+                    "Repayment Date": formatDate(cam?.details?.repaymentDate),
+                    "Loan No": loanNo || "",
+                    Name: [lead.fName, lead.mName, lead.lName]
+                        .filter(Boolean)
+                        .join(" "),
+                    Gender: `${
+                        lead?.gender === "M"
+                            ? "Male"
+                            : lead?.gender === "F"
+                            ? "Female"
+                            : "Other"
+                    }`,
+                    DOB: formatDate(lead.dob),
+                    Salary: cam?.details?.actualNetSalary,
+                    "Account Type": bank?.accountType,
+                    PAN: lead.pan || "",
+                    Aadhaar: lead.aadhaar ? `'${String(lead.aadhaar)}` : "",
+                    Mobile: lead.mobile,
+                    "Alternate Mobile": lead.alternateMobile,
+                    Email: lead.personalEmail,
+                    "Office Email": lead.officeEmail,
+                    "Sanctioned Amount": cam?.details?.loanRecommended || 0,
+                    ROI: cam?.details?.roi,
+                    Tenure: cam?.details?.eligibleTenure,
+                    Status: status,
+                    "Interest Amount": cam?.details?.repaymentAmount
+                        ? cam.details.repaymentAmount -
+                          cam.details.loanRecommended
+                        : 0,
+                    "Disbursed Amount": amount || 0,
+                    "Repayment Amount": cam?.details?.repaymentAmount || 0,
+                    PF: cam?.details?.netAdminFeeAmount || 0,
+                    "PF%": cam?.details?.adminFeePercentage || 0,
+                    "Beneficiary Bank Name": bank?.bankName || "",
+                    "Beneficiary Name": bank?.beneficiaryName || "",
+                    accountNo: bank?.bankAccNo || "",
+                    IFSC: bank?.ifscCode || "",
+                    "Disbursed Bank": payableAccount || "",
+                    UTR: utr ? `${String(utr)}` : "",
+                    Screener: formatFullName(
+                        lead?.recommendedBy?.fName,
+                        lead?.recommendedBy?.mName,
+                        lead?.recommendedBy?.lName
+                    ),
+                    "Credit Manager": formatFullName(
+                        application?.recommendedBy?.fName,
+                        application?.recommendedBy?.mName,
+                        application?.recommendedBy?.lName
+                    ),
+                    "Sanctioned By": formatFullName(
+                        approvedBy?.fName,
+                        approvedBy?.mName,
+                        approvedBy?.lName
+                    ),
+                    "Residence Address": applicant?.residence?.address || "",
+                    "Residence City": applicant?.residence?.city || "",
+                    "Residence State":
+                        aadhaarDetails?.details?.address?.state || "",
+                    "Residence Pincode": applicant?.residence?.pincode || "",
+                    "Company Name": applicant?.employment?.companyName || "",
+                    "Company Address":
+                        applicant?.employment?.companyAddress || "",
+                    "Company State": applicant?.employment?.state || "",
+                    "Company City": applicant?.employment?.city || "",
+                    "Company Pincode": applicant?.employment?.pincode || "",
+                };
+            })
+            .filter(Boolean);
+        return disbursedData;
+    } catch (error) {
+        console.error("Error generating report:", error);
     }
 };
 
 // Function to send approved sanctions to disbursal
 const sendApprovedSanctionToDisbursal = async () => {
     try {
-        const ids = ["678767712149cb67fccfb17d"];
+        const ids = ["679b46561327e9f0080c4680"];
 
         for (const id of ids) {
             // const lastSanctioned = await mongoose.model("Sanction").aggregate([
@@ -1009,23 +1093,25 @@ const sendApprovedSanctionToDisbursal = async () => {
             // const newSequence = lastSequence + 1;
 
             // const nextLoanNo = `NMFSPE${String(newSequence).padStart(11, 0)}`;
-            const sanctionDate = new Date(2025, 0, 15, 8, 54);
-            const disbursedlDate = new Date(2025, 0, 15, 9, 35);
+            // const sanctionDate = new Date(2025, 0, 15, 8, 54);
+            // const disbursedlDate = new Date(2025, 0, 15, 9, 35);
 
-            const sanction = await Sanction.findByIdAndUpdate(
-                { _id: id },
-                {
-                    $set: {
-                        approvedBy: "677b68a4c2ee186c16e93b6b",
-                        loanNo: "QUALON0000249",
-                        sanctionDate: sanctionDate,
-                    },
-                },
-                { new: true }
-            ).populate({ path: "application", populate: { path: "lead" } });
+            // const sanction = await Sanction.findByIdAndUpdate(
+            //     { _id: id },
+            //     {
+            //         $set: {
+            //             approvedBy: "677b68a4c2ee186c16e93b6b",
+            //             loanNo: "QUALON0000249",
+            //             sanctionDate: sanctionDate,
+            //         },
+            //     },
+            //     { new: true }
+            // ).populate({ path: "application", populate: { path: "lead" } });
+
+            const sanction = await Sanction.findById({ _id: id });
 
             if (!sanction) {
-                console.log("Updation failed!!");
+                console.log("No sanction found!!");
             }
 
             // const active = await createActiveLead(
@@ -1041,15 +1127,15 @@ const sendApprovedSanctionToDisbursal = async () => {
                 sanction: sanction._id,
                 loanNo: sanction.loanNo,
                 sanctionedBy: sanction.approvedBy,
-                isRecommended: true,
-                isDisbursed: true,
-                recommendedBy: "677cbdf92273331a42535fc1",
-                disbursalManagerId: "677cbdf92273331a42535fc1",
-                disbursedAt: disbursedlDate,
-                amount: "44200",
-                channel: "imps",
-                paymentMode: "offline",
-                payableAccount: "6345126849",
+                // isRecommended: true,
+                // isDisbursed: true,
+                // recommendedBy: "677cbdf92273331a42535fc1",
+                // disbursalManagerId: "677cbdf92273331a42535fc1",
+                // disbursedAt: disbursedlDate,
+                // amount: "44200",
+                // channel: "imps",
+                // paymentMode: "offline",
+                // payableAccount: "6345126849",
             });
             console.log(disbursal);
 
@@ -1148,7 +1234,7 @@ const addLeadNo = async () => {
     }
 };
 
-// const send LeadNo and Pan to application, sanction, disbursal and closed
+// const send LeadNo and Pan to application, sanction, disbursal
 const sendLeadNoAndPan = async () => {
     try {
         // Step 1: Find all approved leads
@@ -1647,6 +1733,289 @@ const addLeadStatusRef = async () => {
     }
 };
 
+const moveSanctionLetterFiles = async (panNumber) => {
+    try {
+        const sourceFolder = `${panNumber}/`; // PAN-based folder
+        const targetFolder = `${panNumber}/sanctionLetter/`;
+
+        // List all objects in the PAN folder
+        const { Contents } = await s3
+            .listObjectsV2({ Bucket: BUCKET_NAME, Prefix: sourceFolder })
+            .promise();
+
+        if (!Contents || Contents.length === 0) {
+            console.log(`No files found in ${sourceFolder}`);
+            return;
+        }
+
+        // Filter files that start with "sanctionLetter-"
+        const sanctionLetterFiles = Contents.filter((file) =>
+            file.Key.includes("sanctionLetter-")
+        );
+
+        if (sanctionLetterFiles.length === 0) {
+            console.log(`No sanctionLetter-* files found in ${sourceFolder}`);
+            return;
+        }
+
+        // Move each file to the "sanctionLetter" folder
+        for (let file of sanctionLetterFiles) {
+            const newKey = file.Key.replace(sourceFolder, targetFolder);
+
+            await s3
+                .copyObject({
+                    Bucket: BUCKET_NAME,
+                    CopySource: `${BUCKET_NAME}/${file.Key}`,
+                    Key: newKey,
+                })
+                .promise();
+
+            // await s3
+            //     .deleteObject({
+            //         Bucket: BUCKET_NAME,
+            //         Key: file.Key,
+            //     })
+            //     .promise();
+
+            console.log(`Moved ${file.Key} to ${newKey}`);
+        }
+
+        console.log(
+            `All sanctionLetter files moved successfully for PAN: ${panNumber}`
+        );
+    } catch (error) {
+        console.error(
+            `Error moving sanctionLetter files for PAN: ${panNumber}`,
+            error
+        );
+    }
+};
+
+let count = 0;
+const checkAndDeleteNestedSanctionLetter = async (panFolder) => {
+    try {
+        const sourceFolder = `${panFolder}/`;
+        // console.log(sourceFolder);
+
+        // List all objects in the sanctionLetter folder
+        const { Contents } = await s3
+            .listObjectsV2({
+                Bucket: BUCKET_NAME,
+                Prefix: sourceFolder,
+            })
+            .promise();
+
+        if (!Contents || Contents.length === 0) {
+            console.log(`No files found in ${sourceFolder}`);
+            return;
+        }
+
+        // Check if there is a nested "sanctionLetter/" folder
+        const nestedSanctionLetterFiles = Contents.filter((file) =>
+            file.Key.startsWith(`${sourceFolder}sanctionLetter/sanctionLetter/`)
+        );
+
+        if (nestedSanctionLetterFiles.length === 0) {
+            console.log(
+                `No Nested sanctionLetter folder found in ${panFolder}.`
+            );
+            return;
+        }
+        console.log(
+            `Nested sanctionLetter folder found in ${panFolder}. Deleting files...`
+        );
+
+        // Delete all files inside the nested sanctionLetter folder
+        for (let file of nestedSanctionLetterFiles) {
+            await s3
+                .deleteObject({
+                    Bucket: BUCKET_NAME,
+                    Key: file.Key,
+                })
+                .promise();
+            console.log(`Deleted: ${file.Key}`);
+        }
+
+        // console.log(`Nested sanctionLetter folder deleted successfully.`);
+    } catch (error) {
+        console.error("Error:", error);
+    }
+};
+
+// update sanctionLetter from single to multiple
+const updateSanctionLetters = async () => {
+    try {
+        // Find all documents where singleDocuments contains sanctionLetter
+        const documents = await Documents.find({});
+
+        console.log(`Found ${documents.length} documents to update.`);
+
+        for (let doc of documents) {
+            // const pan = doc.pan;
+            // Filter out only sanctionLetter entries from singleDocuments
+            // const sanctionLetters =
+            //     doc.document.multipleDocuments.sanctionLetter;
+
+            let updated = false;
+            doc.document.multipleDocuments.sanctionLetter =
+                doc.document.multipleDocuments.sanctionLetter.map((doc) => {
+                    const regex = /^([^/]+)\/sanctionLetter-/; // Match {pan}/sanctionLetter-
+
+                    if (regex.test(doc.url)) {
+                        const updatedUrl = doc.url.replace(
+                            regex,
+                            `$1/sanctionLetter/sanctionLetter-`
+                        );
+                        console.log(`Updating: ${doc.url} -> ${updatedUrl}`); // Debugging
+                        updated = true; // Mark that we made a change
+                        return { ...doc, url: updatedUrl };
+                    }
+                    return doc;
+                });
+
+            // Save only if there was an update
+            if (updated) {
+                await doc.save();
+                console.log("Document updated successfully.");
+            } else {
+                console.log("No updates were made.");
+            }
+
+            // const nestedSanctionLetterUrls = sanctionLetters
+            //     .map((doc) => doc.url) // Extract URLs
+            //     .filter((url) => url.startsWith(`${pan}/sanctionLetter-`));
+
+            // await checkAndDeleteNestedSanctionLetter(pan);
+            // if (sanctionLetters.length > 0) {
+            //     // const sourceFolder = `${pan}/`; // PAN-based folder
+            //     // const targetFolder = `${pan}/sanctionLetter/`;
+
+            //     // List all objects in the PAN folder
+            //     // const { Contents } = await s3
+            //     //     .listObjectsV2({
+            //     //         Bucket: BUCKET_NAME,
+            //     //         Prefix: sourceFolder,
+            //     //     })
+            //     //     .promise();
+
+            //     // if (!Contents || Contents.length === 0) {
+            //     //     console.log(`No files found in ${sourceFolder}`);
+            //     //     return;
+            //     // }
+
+            //     // Filter files that start with "sanctionLetter-"
+            //     // const sanctionLetterFiles = Contents.filter((file) =>
+            //     //     file.Key.includes("sanctionLetter-")
+            //     // );
+
+            //     // if (sanctionLetterFiles.length === 0) {
+            //     //     console.log(
+            //     //         `No sanctionLetter-* files found in ${sourceFolder}`
+            //     //     );
+            //     //     return;
+            //     // }
+
+            //     // Move each file to the "sanctionLetter" folder
+            //     // let newKey;
+            //     // for (let file of sanctionLetterFiles) {
+            //     //     newKey = file.Key.replace(sourceFolder, targetFolder);
+
+            //     //     await s3
+            //     //         .copyObject({
+            //     //             Bucket: BUCKET_NAME,
+            //     //             CopySource: `${BUCKET_NAME}/${file.Key}`,
+            //     //             Key: newKey,
+            //     //         })
+            //     //         .promise();
+
+            //     //     // await s3
+            //     //     //     .deleteObject({
+            //     //     //         Bucket: BUCKET_NAME,
+            //     //     //         Key: file.Key,
+            //     //     //     })
+            //     //     //     .promise();
+            //     // }
+
+            //     // Transform to multipleDocuments format
+            //     const newSanctionLetters = sanctionLetters.map((item) => ({
+            //         _id: new mongoose.Types.ObjectId(),
+            //         name: item.name,
+            //         url: item.url,
+            //         remarks: item.remarks || "", // Default empty string if missing
+            //     }));
+
+            //     // Ensure multipleDocuments.sanctionLetter exists
+            //     if (!doc.document.multipleDocuments.sanctionLetter) {
+            //         doc.document.multipleDocuments.sanctionLetter = [];
+            //     }
+
+            //     // Append transformed sanctionLetters to multipleDocuments
+            //     doc.document.multipleDocuments.sanctionLetter.push(
+            //         ...newSanctionLetters
+            //     );
+
+            //     // Remove sanctionLetter from singleDocuments
+            //     doc.document.singleDocuments =
+            //         doc.document.singleDocuments.filter(
+            //             (item) => item.name !== "sanctionLetter"
+            //         );
+
+            //     // Save the updated document
+            //     await doc.save();
+
+            //     console.log(`Updated document PAN: ${doc.pan}`);
+            // }
+        }
+
+        console.log("Migration completed successfully! ✅");
+        process.exit(0);
+    } catch (error) {
+        console.error("Error during migration:", error);
+        process.exit(1);
+    }
+};
+
+export const removeDuplicateCam = async () => {
+    try {
+        const duplicateCams = await CamDetails.aggregate([
+            {
+                $group: {
+                    _id: "$leadNo",
+                    count: { $sum: 1 },
+                    ids: { $push: "$_id" }, // Collect all document IDs for this leadNo
+                },
+            },
+            {
+                $match: {
+                    count: { $gt: 1 }, // Only leadNos with more than 1 entry
+                },
+            },
+        ]);
+
+        for (const cam of duplicateCams) {
+            // console.log("lead Id: ", lead.ids);
+
+            const toDelete = await CamDetails.find({
+                _id: { $in: cam.ids }, // Select only the duplicate records
+                $or: [
+                    { "details.loanRecommended": { $exists: false } },
+                    { "details.actualNetSalary": { $exists: false } },
+                ],
+            });
+
+            if (toDelete.length > 0) {
+                await CamDetails.deleteMany({
+                    _id: { $in: toDelete.map((doc) => doc._id) },
+                });
+                console.log(`Deleted ${toDelete.length} duplicate CAM details`);
+            }
+        }
+    } catch (error) {
+        console.log(error.message);
+        exit;
+    }
+};
+
 // Main Function to Connect and Run
 async function main() {
     // await connectToDatabase(); // Start - Connect to the database
@@ -1670,6 +2039,8 @@ async function main() {
     // await searchSanctionsByPAN();
     // await updateLoanNumberType();
     // await addLeadStatusRef();
+    // await updateSanctionLetters();
+    // await removeDuplicateCam();
     // updateDisbursals();
     // migrateApplicationsToSanctions();
     mongoose.connection.close(); // Close the connection after the script completes
