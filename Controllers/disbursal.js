@@ -422,23 +422,110 @@ export const disbursed = asyncHandler(async (req, res) => {
             isDisbursed: { $eq: true },
         };
 
-        const disbursals = await Disbursal.find(query)
-            .skip(skip)
-            .limit(limit)
-            .populate({
-                path: "sanction",
-                populate: [
-                    { path: "approvedBy" },
-                    {
-                        path: "application",
-                        populate: [
-                            { path: "lead", populate: { path: "documents" } }, // Nested populate for lead and documents
-                            { path: "recommendedBy" },
-                        ],
+        const disbursals = await Disbursal.aggregate([
+            { $match: query },
+            {
+                $project: {
+                    loanNo: 1,
+                    leadNo: 1,
+                    sanction: 1,
+                    disbursedBy: 1,
+                    updatedAt: 1,
+                },
+            }, // Direct projection, no need for $arrayElemAt
+
+            // Lookup Lead
+            {
+                $lookup: {
+                    from: "leads",
+                    localField: "leadNo",
+                    foreignField: "leadNo",
+                    as: "lead",
+                    pipeline: [
+                        {
+                            $project: {
+                                _id: 1,
+                                fName: 1,
+                                mName: 1,
+                                lName: 1,
+                                pan: 1,
+                                aadhaar: 1,
+                                mobile: 1,
+                                city: 1,
+                                state: 1,
+                                source: 1,
+                            },
+                        },
+                    ],
+                },
+            },
+            {
+                $set: {
+                    lead: {
+                        $arrayElemAt: ["$lead", 0],
                     },
-                ],
-            })
-            .populate("disbursedBy");
+                },
+            },
+
+            // Lookup CAM Details
+            {
+                $lookup: {
+                    from: "camdetails",
+                    localField: "lead._id", // Correctly resolved lead ID
+                    foreignField: "leadId",
+                    as: "camDetails",
+                    pipeline: [
+                        {
+                            $project: {
+                                _id: 0,
+                                loanRecommended: "$details.loanRecommended",
+                                actualNetSalary: "$details.actualNetSalary",
+                            },
+                        },
+                    ],
+                },
+            },
+            {
+                $set: {
+                    camDetails: { $arrayElemAt: ["$camDetails", 0] },
+                },
+            },
+
+            // Lookup DisbursedBy (Employee who processed the disbursal)
+            {
+                $lookup: {
+                    from: "employees",
+                    localField: "disbursedBy",
+                    foreignField: "_id",
+                    as: "disbursedBy",
+                    pipeline: [{ $project: { fName: 1, lName: 1 } }],
+                },
+            },
+            { $set: { disbursedBy: { $arrayElemAt: ["$disbursedBy", 0] } } },
+
+            { $sort: { updatedAt: -1 } },
+            // Final Projection
+            {
+                $project: {
+                    updatedAt: 1,
+                    "lead.fName": 1,
+                    "lead.mName": 1,
+                    "lead.lName": 1,
+                    "lead.pan": 1,
+                    "lead.mobile": 1,
+                    leadNo: 1,
+                    loanNo: 1,
+                    "lead.aadhaar": 1,
+                    "lead.city": 1,
+                    "lead.state": 1,
+                    "camDetails.actualNetSalary": 1,
+                    "camDetails.loanRecommended": 1,
+                    "lead.source": 1,
+                    "disbursedBy.fName": 1,
+                    "disbursedBy.lName": 1,
+                },
+            },
+        ]);
 
         const totalDisbursals = await Disbursal.countDocuments(query);
 
