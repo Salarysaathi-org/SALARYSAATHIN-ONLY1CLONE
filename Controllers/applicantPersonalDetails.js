@@ -146,11 +146,10 @@ export const updateApplicantDetails = asyncHandler(async (req, res) => {
         };
     }
 
-    if (updates.reference && updates.reference.length > 0) {
-        applicant.reference = {
-            ...applicant.reference,
-            ...updates.reference,
-        };
+    console.log("Reference: ", updates.reference);
+
+    if (Array.isArray(updates.reference) && updates.reference.length > 0) {
+        applicant.reference = updates.reference;
     }
 
     // Fetch all applicants and leads
@@ -226,7 +225,7 @@ export const updateApplicantDetails = asyncHandler(async (req, res) => {
     );
 
     // Send the updated personal details as a JSON response
-    return res.json({ refCheck, logs });
+    return res.json({ logs });
 });
 
 // @desc Update Applicant Bank Details
