@@ -146,62 +146,69 @@ export const updateApplicantDetails = asyncHandler(async (req, res) => {
         };
     }
 
-    // Fetch all applicants and leads
-    const allApplicants = await Applicant.find({});
-    const allLeads = await Lead.find({});
-
-    let refCheck = [];
-    // Update reference if provided
     if (updates.reference && updates.reference.length > 0) {
-        updates.reference.forEach((newRef) => {
-            // Find all applicants who have used the same reference (mobile number)
-            const applicantsWithSameReference = allApplicants.filter(
-                (applicants) =>
-                    applicants.reference.some(
-                        (oldRef) => oldRef.mobile === newRef.mobile
-                    )
-            );
-            if (applicantsWithSameReference.length > 0) {
-                // Add all applicants who used the same reference to refCheck
-                applicantsWithSameReference.forEach((applicants) => {
-                    refCheck.push({
-                        type: "Applicant",
-                        applicant: `${applicants.personalDetails.fName}${
-                            applicants.personalDetails.mName ??
-                            ` ${applicants.personalDetails.mName} ${applicants.personalDetails.lName}`
-                        }`,
-                        mobile: `${applicants.personalDetails.mobile}`,
-                        companyName: `${applicants.employment.companyName}`,
-                    });
-                });
-            }
-
-            // Check if the reference mobile was ever a lead
-            const leadWithSameMobile = allLeads.filter(
-                (lead) =>
-                    lead.mobile === newRef.mobile ||
-                    lead.alternateMobile === newRef.mobile
-            );
-
-            if (leadWithSameMobile.length > 0) {
-                // Add all leads with the same mobile to refCheck
-                leadWithSameMobile.forEach((lead) => {
-                    refCheck.push({
-                        type: "Lead",
-                        leadId: lead._id,
-                        name: `${lead.fName}${lead.mName && ` ${lead.mName}`} ${
-                            lead.lName
-                        }`,
-                        email: lead.personalEmail,
-                        officeEmail: lead.officeEmail,
-                        mobile: lead.mobile,
-                        alternateMobile: lead.alternateMobile,
-                    });
-                });
-            }
-            applicant.reference.push(newRef);
-        });
+        applicant.reference = {
+            ...applicant.reference,
+            ...updates.reference,
+        };
     }
+
+    // Fetch all applicants and leads
+    // const allApplicants = await Applicant.find({});
+    // const allLeads = await Lead.find({});
+
+    // let refCheck = [];
+    // Update reference if provided
+    // if (updates.reference && updates.reference.length > 0) {
+    //     updates.reference.forEach((newRef) => {
+    //         // Find all applicants who have used the same reference (mobile number)
+    //         const applicantsWithSameReference = allApplicants.filter(
+    //             (applicants) =>
+    //                 applicants.reference.some(
+    //                     (oldRef) => oldRef.mobile === newRef.mobile
+    //                 )
+    //         );
+    //         if (applicantsWithSameReference.length > 0) {
+    //             // Add all applicants who used the same reference to refCheck
+    //             applicantsWithSameReference.forEach((applicants) => {
+    //                 refCheck.push({
+    //                     type: "Applicant",
+    //                     applicant: `${applicants.personalDetails.fName}${
+    //                         applicants.personalDetails.mName ??
+    //                         ` ${applicants.personalDetails.mName} ${applicants.personalDetails.lName}`
+    //                     }`,
+    //                     mobile: `${applicants.personalDetails.mobile}`,
+    //                     companyName: `${applicants.employment.companyName}`,
+    //                 });
+    //             });
+    //         }
+
+    //         // Check if the reference mobile was ever a lead
+    //         const leadWithSameMobile = allLeads.filter(
+    //             (lead) =>
+    //                 lead.mobile === newRef.mobile ||
+    //                 lead.alternateMobile === newRef.mobile
+    //         );
+
+    //         if (leadWithSameMobile.length > 0) {
+    //             // Add all leads with the same mobile to refCheck
+    //             leadWithSameMobile.forEach((lead) => {
+    //                 refCheck.push({
+    //                     type: "Lead",
+    //                     leadId: lead._id,
+    //                     name: `${lead.fName}${lead.mName && ` ${lead.mName}`} ${
+    //                         lead.lName
+    //                     }`,
+    //                     email: lead.personalEmail,
+    //                     officeEmail: lead.officeEmail,
+    //                     mobile: lead.mobile,
+    //                     alternateMobile: lead.alternateMobile,
+    //                 });
+    //             });
+    //         }
+    //         applicant.reference.push(newRef);
+    //     });
+    // }
 
     // Save the updated applicant
     await applicant.save();
