@@ -27,6 +27,19 @@ export const getPanDetails = asyncHandler(async (req, res) => {
         throw new Error({ success: false, message: "Invalid PAN!!!" });
     }
 
+    const existingPan = await PanDetails.findOne({
+        $or: [
+            { "data.PAN": pan }, // Check if data.PAN matches
+            { "data.pan": pan }, // Check if data.pan matches
+        ],
+    });
+
+    if (existingPan) {
+        return res.json({
+            data: existingPan.data,
+        });
+    }
+
     // Call the get panDetails Function
     const response = await panVerify(id, pan);
 
